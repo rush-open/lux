@@ -1,3 +1,4 @@
+export * from './auth/index.js';
 export {
   type EventStore,
   type EventStoreEvent,
