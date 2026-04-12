@@ -1,3 +1,11 @@
+export { AgentBridge, type AgentBridgeConfig, type AgentBridgeResult } from './agent-bridge.js';
+export { type AgentContext, AgentExecutor, type AgentExecutorDeps } from './agent-executor.js';
+export {
+  type Checkpoint,
+  type CheckpointDb,
+  CheckpointService,
+  type CheckpointStorage,
+} from './checkpoint-service.js';
 export { type CreateRunInput, type Run, type RunDb, RunService } from './run-service.js';
 export {
   canTransition,
@@ -6,3 +14,11 @@ export {
   isTerminal,
   type RunStatus,
 } from './run-state-machine.js';
+export {
+  createErrorHandler,
+  createIncrementalSave,
+  createStreamLogger,
+  type StreamEvent,
+  type StreamMiddleware,
+  StreamPipeline,
+} from './stream-middleware.js';
