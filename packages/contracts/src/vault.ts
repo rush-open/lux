@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { VaultScope } from './enums.js';
+import { CredentialType, VaultScope } from './enums.js';
 
 export const VaultEntry = z
   .object({
@@ -8,7 +8,7 @@ export const VaultEntry = z
     projectId: z.string().uuid().nullable().default(null),
     ownerId: z.string().uuid().nullable().default(null),
     name: z.string().min(1).max(255),
-    credentialType: z.string().default('env'),
+    credentialType: CredentialType.default('env_var'),
     encryptedValue: z.string().min(1),
     keyVersion: z.number().int().positive().default(1),
     injectionTarget: z.string().nullable().default(null),

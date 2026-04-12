@@ -21,7 +21,7 @@ export const vaultEntries = pgTable(
     projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
     ownerId: uuid('owner_id').references(() => users.id, { onDelete: 'set null' }),
     name: varchar('name', { length: 255 }).notNull(),
-    credentialType: varchar('credential_type', { length: 50 }).notNull().default('env'),
+    credentialType: varchar('credential_type', { length: 50 }).notNull().default('env_var'),
     encryptedValue: text('encrypted_value').notNull(),
     keyVersion: integer('key_version').notNull().default(1),
     injectionTarget: varchar('injection_target', { length: 255 }),

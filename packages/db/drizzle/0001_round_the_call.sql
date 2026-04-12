@@ -1,0 +1,1 @@
+ALTER TABLE "vault_entries" ALTER COLUMN "credential_type" SET DEFAULT 'env_var';

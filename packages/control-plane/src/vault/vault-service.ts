@@ -44,6 +44,8 @@ export interface VaultStorage {
 
   remove(scope: VaultScope, name: string, projectId?: string | null): Promise<boolean>;
 
+  countByScope(scope: VaultScope, projectId?: string | null): Promise<number>;
+
   findAllForInjection(projectId: string): Promise<
     Array<{
       name: string;
@@ -60,6 +62,8 @@ export class VaultService {
     private storage: VaultStorage
   ) {}
 
+  static readonly MAX_CREDENTIALS_PER_SCOPE = 20;
+
   async store(
     scope: VaultScope,
     name: string,
@@ -67,13 +71,24 @@ export class VaultService {
     opts: StoreOptions = {}
   ): Promise<VaultEntry> {
     this.validateProjectId(scope, opts.projectId);
+
+    const existing = await this.storage.findByName(scope, name, opts.projectId);
+    if (!existing) {
+      const count = await this.storage.countByScope(scope, opts.projectId);
+      if (count >= VaultService.MAX_CREDENTIALS_PER_SCOPE) {
+        throw new Error(
+          `Maximum ${VaultService.MAX_CREDENTIALS_PER_SCOPE} credentials per scope reached`
+        );
+      }
+    }
+
     const encrypted = this.crypto.encrypt(plaintext);
     return this.storage.upsert({
       scope,
       projectId: scope === 'project' ? (opts.projectId ?? null) : null,
       ownerId: opts.ownerId ?? null,
       name,
-      credentialType: opts.credentialType ?? 'env',
+      credentialType: opts.credentialType ?? 'env_var',
       encryptedValue: encrypted,
       keyVersion: 1,
       injectionTarget: opts.injectionTarget ?? null,

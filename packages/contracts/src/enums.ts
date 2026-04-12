@@ -84,6 +84,17 @@ export type SandboxStatus = z.infer<typeof SandboxStatus>;
 export const VaultScope = z.enum(['platform', 'project']);
 export type VaultScope = z.infer<typeof VaultScope>;
 
+export const CredentialType = z.enum([
+  'env_var',
+  'anthropic_api',
+  'aws_bedrock',
+  'custom_endpoint',
+  'git_token',
+  'npm_token',
+  'http_bearer',
+]);
+export type CredentialType = z.infer<typeof CredentialType>;
+
 // --- Checkpoint ---
 
 export const CheckpointStatus = z.enum(['in_progress', 'completed', 'failed']);

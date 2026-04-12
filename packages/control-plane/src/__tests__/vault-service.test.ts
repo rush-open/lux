@@ -61,6 +61,12 @@ class InMemoryVaultStorage implements VaultStorage {
     return this.entries.delete(this.key(scope, name, projectId));
   }
 
+  async countByScope(scope: VaultScope, projectId?: string | null): Promise<number> {
+    return Array.from(this.entries.values()).filter(
+      (e) => e.entry.scope === scope && e.entry.projectId === (projectId ?? null)
+    ).length;
+  }
+
   async findAllForInjection(projectId: string): Promise<
     Array<{
       name: string;
@@ -124,6 +130,29 @@ describe('VaultService', () => {
       await expect(service.store('project', 'KEY', 'value')).rejects.toThrow(
         'projectId is required for project-scoped credentials'
       );
+    });
+
+    it('enforces max credentials per scope', async () => {
+      for (let i = 0; i < 20; i++) {
+        await service.store('platform', `KEY_${i}`, `value-${i}`);
+      }
+      await expect(service.store('platform', 'KEY_OVER', 'overflow')).rejects.toThrow(
+        'Maximum 20 credentials'
+      );
+    });
+
+    it('allows updating existing credential even at max', async () => {
+      for (let i = 0; i < 20; i++) {
+        await service.store('platform', `KEY_${i}`, `value-${i}`);
+      }
+      await service.store('platform', 'KEY_0', 'new-value');
+      const value = await service.retrieve('platform', 'KEY_0');
+      expect(value).toBe('new-value');
+    });
+
+    it('uses env_var as default credential type', async () => {
+      const entry = await service.store('platform', 'KEY', 'value');
+      expect(entry.credentialType).toBe('env_var');
     });
   });
 
