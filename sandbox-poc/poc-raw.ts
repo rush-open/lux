@@ -58,9 +58,7 @@ async function execInSandbox(
   opts?: { timeout?: number }
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const controller = new AbortController();
-  const timer = opts?.timeout
-    ? setTimeout(() => controller.abort(), opts.timeout * 1000)
-    : null;
+  const timer = opts?.timeout ? setTimeout(() => controller.abort(), opts.timeout * 1000) : null;
 
   try {
     const resp = await fetch(`http://localhost:${execdPort}/command`, {
@@ -256,8 +254,16 @@ async function verifyInteractiveCLI() {
 
   // --- 流式输出 ---
   console.log('\n--- 流式命令输出 ---');
-  const streamResult = await execInSandbox(port, 'for i in 1 2 3 4 5; do echo "line $i"; sleep 0.3; done');
-  console.log(`  输出:\n${streamResult.stdout.split('\n').map((l) => `    ${l}`).join('\n')}`);
+  const streamResult = await execInSandbox(
+    port,
+    'for i in 1 2 3 4 5; do echo "line $i"; sleep 0.3; done'
+  );
+  console.log(
+    `  输出:\n${streamResult.stdout
+      .split('\n')
+      .map((l) => `    ${l}`)
+      .join('\n')}`
+  );
   console.log(`  exitCode: ${streamResult.exitCode}`);
 
   // --- 超时中断 ---
@@ -277,7 +283,10 @@ async function verifyInteractiveCLI() {
 
   // --- SIGINT ---
   console.log('\n--- SIGINT 信号 ---');
-  await execInSandbox(port, 'node -e "require(\'fs\').writeFileSync(\'/tmp/pid\', String(process.pid)); setInterval(()=>{},1000)" &');
+  await execInSandbox(
+    port,
+    "node -e \"require('fs').writeFileSync('/tmp/pid', String(process.pid)); setInterval(()=>{},1000)\" &"
+  );
   await new Promise((r) => setTimeout(r, 1000));
   const pidResult = await execInSandbox(port, 'cat /tmp/pid');
   const pid = pidResult.stdout.trim();

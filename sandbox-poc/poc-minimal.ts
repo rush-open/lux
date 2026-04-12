@@ -3,7 +3,7 @@
  * 先确认 SDK 能创建 sandbox 并连接 execd
  */
 
-import { Sandbox, ConnectionConfig } from '@alibaba-group/opensandbox';
+import { ConnectionConfig, Sandbox } from '@alibaba-group/opensandbox';
 
 const conn = new ConnectionConfig({
   domain: 'localhost:8090',

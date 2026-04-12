@@ -115,7 +115,14 @@ class LocalSandboxProvider implements SandboxProvider {
 // ---------------------------------------------------------------------------
 
 function startAgentWorker(): ChildProcess {
-  const serverPath = path.resolve(import.meta.dirname, '..', 'apps', 'agent-worker', 'src', 'server.ts');
+  const serverPath = path.resolve(
+    import.meta.dirname,
+    '..',
+    'apps',
+    'agent-worker',
+    'src',
+    'server.ts'
+  );
   log('agent-worker', `Starting agent-worker at :${AGENT_WORKER_PORT} (${serverPath})`);
 
   const child = spawn('npx', ['tsx', serverPath], {
@@ -399,9 +406,11 @@ async function main(): Promise<number> {
   return exitCode;
 }
 
-main().then((code) => {
-  process.exit(code);
-}).catch((err) => {
-  console.error('\nSmoke test crashed:', err);
-  process.exit(1);
-});
+main()
+  .then((code) => {
+    process.exit(code);
+  })
+  .catch((err) => {
+    console.error('\nSmoke test crashed:', err);
+    process.exit(1);
+  });

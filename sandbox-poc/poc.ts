@@ -6,7 +6,7 @@
  * 阻断项 3: 交互式 CLI (流式输出 + 信号中断)
  */
 
-import { Sandbox, ConnectionConfig } from '@alibaba-group/opensandbox';
+import { ConnectionConfig, Sandbox } from '@alibaba-group/opensandbox';
 
 const conn = new ConnectionConfig({
   domain: 'localhost:8090',
@@ -205,7 +205,9 @@ async function verifyInteractiveCLI() {
   // 测试 SIGINT 场景：启动 node 进程然后 kill
   console.log('\n--- 测试 SIGINT 信号 ---');
   // 后台启动一个会写 PID 的 node 进程
-  await sandbox.commands.run('node -e "require(\'fs\').writeFileSync(\'/tmp/pid\', String(process.pid)); setInterval(()=>{},1000)" &');
+  await sandbox.commands.run(
+    "node -e \"require('fs').writeFileSync('/tmp/pid', String(process.pid)); setInterval(()=>{},1000)\" &"
+  );
   await new Promise((r) => setTimeout(r, 1000));
   const pidResult = await sandbox.commands.run('cat /tmp/pid');
   const pid = pidResult.logs?.stdout?.trim();
@@ -218,7 +220,9 @@ async function verifyInteractiveCLI() {
   // 验证进程已退出
   await new Promise((r) => setTimeout(r, 500));
   const checkResult = await sandbox.commands.run(`kill -0 ${pid} 2>&1 || echo "process exited"`);
-  console.log(`  ✓ 进程状态: ${checkResult.logs?.stdout?.trim() || checkResult.logs?.stderr?.trim()}`);
+  console.log(
+    `  ✓ 进程状态: ${checkResult.logs?.stdout?.trim() || checkResult.logs?.stderr?.trim()}`
+  );
 
   await sandbox.kill();
   console.log('\n✅ 阻断项 3 通过: 流式输出 + 超时中断 + SIGINT 均可用');
