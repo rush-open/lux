@@ -89,12 +89,14 @@ describe('TemplateRegistry', () => {
   it('returns defensive copies — mutation does not pollute registry', () => {
     const registry = new TemplateRegistry();
     const t1 = registry.get('simple-html');
-    t1!.files['index.html'] = 'TAMPERED';
-    t1!.name = 'HACKED';
+    if (t1) {
+      t1.files['index.html'] = 'TAMPERED';
+      t1.name = 'HACKED';
+    }
 
     const t2 = registry.get('simple-html');
-    expect(t2!.files['index.html']).toContain('<!DOCTYPE html>');
-    expect(t2!.name).toBe('Simple HTML');
+    expect(t2?.files['index.html']).toContain('<!DOCTYPE html>');
+    expect(t2?.name).toBe('Simple HTML');
 
     const list = registry.list();
     list[0].name = 'TAMPERED_LIST';
