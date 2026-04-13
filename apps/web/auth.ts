@@ -7,7 +7,12 @@ const db = getDbClient();
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: DrizzleAdapter(db),
-  providers: [GitHub],
+  providers: [
+    GitHub({
+      clientId: process.env.AUTH_GITHUB_ID,
+      clientSecret: process.env.AUTH_GITHUB_SECRET,
+    }),
+  ],
   session: { strategy: 'database' },
   pages: {
     signIn: '/login',

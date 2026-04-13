@@ -244,25 +244,26 @@ cd open-rush
 pnpm install
 pnpm db:up              # PostgreSQL, Redis, MinIO（Docker Compose）
 pnpm db:push            # 推送数据库 schema
-
-# 配置环境变量
-cp .env.example .env.local
-sed -i '' "s|generate-with-openssl-rand-base64-32|$(openssl rand -base64 32)|" .env.local
 ```
 
-然后编辑 `.env.local`，填入 GitHub OAuth 凭据：
+### 配置环境变量
+
+每个 app 目录下有 `.env.example`，复制为 `.env.local` 并填入实际值：
+
+```bash
+cp apps/web/.env.example apps/web/.env.local
+cp apps/control-worker/.env.example apps/control-worker/.env.local
+cp apps/agent-worker/.env.example apps/agent-worker/.env.local
+```
+
+`apps/web/.env.local` 需要额外配置 GitHub OAuth：
 
 1. 前往 [GitHub Developer Settings](https://github.com/settings/developers) 创建 OAuth App
    - **Homepage URL**: `http://localhost:3000`
    - **Callback URL**: `http://localhost:3000/api/auth/callback/github`
-2. 将获取的 Client ID 和 Client Secret 填入 `.env.local`：
+2. 将 Client ID 和 Client Secret 填入 `AUTH_GITHUB_ID` 和 `AUTH_GITHUB_SECRET`
 
-```bash
-AUTH_GITHUB_ID=your-client-id
-AUTH_GITHUB_SECRET=your-client-secret
-```
-
-启动：
+### 启动
 
 ```bash
 pnpm build
