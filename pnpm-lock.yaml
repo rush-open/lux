@@ -23,6 +23,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.0
         version: 1.19.14(hono@4.12.12)
+      '@lux/prompts':
+        specifier: workspace:*
+        version: link:../../packages/prompts
       '@open-rush/agent-runtime':
         specifier: workspace:*
         version: link:../../packages/agent-runtime
@@ -72,6 +75,9 @@ importers:
       '@open-rush/stream':
         specifier: workspace:*
         version: link:../../packages/stream
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@electric-sql/pglite@0.4.4)(@opentelemetry/api@1.9.1)(@types/pg@8.15.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.9)
       pg-boss:
         specifier: ^12.15.0
         version: 12.15.0
@@ -121,6 +127,9 @@ importers:
       '@open-rush/memory':
         specifier: workspace:*
         version: link:../../packages/memory
+      '@open-rush/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
       '@open-rush/skills':
         specifier: workspace:*
         version: link:../../packages/skills
@@ -481,6 +490,21 @@ importers:
         specifier: ^4.0.0
         version: 4.1.4(@opentelemetry/api@1.9.1)(@types/node@25.6.0)(msw@2.13.2(@types/node@25.6.0)(typescript@5.9.3))(vite@8.0.8(@types/node@25.6.0)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
+  packages/prompts:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.6.0
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.9)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.3)
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.0
+        version: 4.1.4(@opentelemetry/api@1.9.1)(@types/node@25.6.0)(msw@2.13.2(@types/node@25.6.0)(typescript@5.9.3))(vite@8.0.8(@types/node@25.6.0)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/sandbox:
     dependencies:
       '@open-rush/contracts':
@@ -523,6 +547,21 @@ importers:
       resumable-stream:
         specifier: ^2.2.0
         version: 2.2.12
+    devDependencies:
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.6.0
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.9)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.3)
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.0
+        version: 4.1.4(@opentelemetry/api@1.9.1)(@types/node@25.6.0)(msw@2.13.2(@types/node@25.6.0)(typescript@5.9.3))(vite@8.0.8(@types/node@25.6.0)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/templates:
     devDependencies:
       '@types/node':
         specifier: ^25.6.0

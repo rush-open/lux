@@ -1,6 +1,7 @@
 import { UpdateAgentRequest } from '@open-rush/contracts';
 import { DrizzleAgentConfigStore, ProjectAgentService } from '@open-rush/control-plane';
 import { agents, getDbClient, projectAgents } from '@open-rush/db';
+import { createLogger } from '@open-rush/observability';
 import { and, eq } from 'drizzle-orm';
 
 import {
@@ -11,27 +12,37 @@ import {
   verifyProjectAccess,
 } from '@/lib/api-utils';
 
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+const logger = createLogger({ service: 'web:agent-api' });
+
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const requestId = request.headers.get('x-request-id') || `agent-get-${Date.now()}`;
+
   let userId: string;
   try {
     userId = await requireAuth();
   } catch (res) {
+    logger.warn({ requestId }, '🚫 Auth failed');
     return res as Response;
   }
 
   const { id } = await params;
+  logger.info({ requestId, userId, agentId: id }, '📨 GET agent request');
+
   const db = getDbClient();
   const store = new DrizzleAgentConfigStore(db);
   const agent = await store.getById(id);
   if (!agent?.projectId) {
+    logger.warn({ requestId, agentId: id }, '⚠️ Agent not found');
     return apiError(404, 'NOT_FOUND', 'Agent not found');
   }
 
   const hasAccess = await verifyProjectAccess(agent.projectId, userId);
   if (!hasAccess) {
+    logger.warn({ requestId, agentId: id, projectId: agent.projectId }, '🚫 Access denied');
     return apiError(403, 'FORBIDDEN', 'No access to this agent');
   }
 
+  logger.info({ requestId, agentId: id, projectId: agent.projectId }, '✅ Agent retrieved');
   return apiSuccess(agent);
 }
 

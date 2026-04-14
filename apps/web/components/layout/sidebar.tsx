@@ -16,6 +16,7 @@ interface ConversationItem {
   id: string;
   title: string | null;
   projectId: string;
+  taskId: string | null;
   updatedAt: string;
 }
 
@@ -59,6 +60,7 @@ export function Sidebar({ user }: SidebarProps) {
               id: c.id as string,
               title: c.title as string | null,
               projectId: c.projectId as string,
+              taskId: (c.taskId as string | null) ?? null,
               updatedAt: c.updatedAt as string,
             }))
           );
@@ -76,7 +78,11 @@ export function Sidebar({ user }: SidebarProps) {
 
   const handleConvClick = useCallback(
     (conv: ConversationItem) => {
-      router.push(`/chat/${conv.id}?projectId=${conv.projectId}`);
+      const params = new URLSearchParams({ projectId: conv.projectId });
+      if (conv.taskId) {
+        params.set('taskId', conv.taskId);
+      }
+      router.push(`/chat/${conv.id}?${params.toString()}`);
     },
     [router]
   );

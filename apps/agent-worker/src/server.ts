@@ -1,3 +1,4 @@
+import { readdirSync } from 'node:fs';
 import { serve } from '@hono/node-server';
 import {
   ensureProjectDir,
@@ -98,13 +99,16 @@ app.post('/prompt', async (c) => {
       }
     }
 
-    // Model from env: ANTHROPIC_MODEL (Bedrock ARN) or fallback
-    const effectiveModelId = modelId ?? process.env.ANTHROPIC_MODEL ?? 'sonnet';
+    // Model from env: CLAUDE_MODEL / ANTHROPIC_MODEL (Bedrock ARN) or fallback
+    const effectiveModelId =
+      modelId ?? process.env.CLAUDE_MODEL ?? process.env.ANTHROPIC_MODEL ?? 'sonnet';
     const providerEnv: Record<string, string> = {
       ...(env ?? {}),
       ...(process.env.ANTHROPIC_BASE_URL && { ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL }),
       ...(process.env.ANTHROPIC_API_KEY && { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY }),
     };
+
+    const hasWorkspaceContent = projectPath && readdirSync(projectPath).length > 0;
 
     const result = streamText({
       model: claudeCode(effectiveModelId, {
@@ -113,16 +117,15 @@ app.post('/prompt', async (c) => {
         sessionId: sid,
         ...(allowedTools?.length ? { allowedTools } : {}),
         ...(Object.keys(providerEnv).length > 0 ? { env: providerEnv } : {}),
-        // Set CWD to project directory if available
-        ...(projectPath ? { cwd: projectPath } : {}),
+        ...(hasWorkspaceContent ? { cwd: projectPath } : {}),
       }),
       ...(effectiveSystemPrompt ? { system: effectiveSystemPrompt } : {}),
       prompt: userPrompt,
       abortSignal: abortController.signal,
     });
 
-    // AI SDK text stream response — compatible with useChat on frontend
-    const response = result.toTextStreamResponse();
+    // UI message stream (SSE + JSON chunks) — persisted to run_events by control-worker
+    const response = result.toUIMessageStreamResponse();
 
     // Cleanup after stream ends
     Promise.resolve(result.response).then(

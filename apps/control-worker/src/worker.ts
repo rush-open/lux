@@ -1,18 +1,37 @@
 import {
   AgentExecutor,
   DrizzleAgentConfigStore,
+  DrizzleEventStore,
   DrizzleRunDb,
-  InMemoryEventStore,
   RunOrchestrator,
   RunService,
 } from '@open-rush/control-plane';
-import { closeDbClient, getDbClient } from '@open-rush/db';
-import { OpenSandboxProvider } from '@open-rush/sandbox';
+import { closeDbClient, getDbClient, runs, tasks } from '@open-rush/db';
+import {
+  LocalDevSandboxProvider,
+  OpenSandboxProvider,
+  type SandboxProvider,
+} from '@open-rush/sandbox';
+import { and, eq } from 'drizzle-orm';
 import { PgBoss } from 'pg-boss';
 
 const DATABASE_URL = process.env.DATABASE_URL ?? 'postgresql://rush:rush@localhost:5432/rush';
 const OPENSANDBOX_API_URL = process.env.OPENSANDBOX_API_URL ?? 'http://localhost:8090';
 const EXEC_HOST = process.env.OPENSANDBOX_EXEC_HOST ?? 'localhost';
+const DEV_AGENT_WORKER_URL = process.env.DEV_AGENT_WORKER_URL ?? 'http://127.0.0.1:8787';
+const IS_DEV = process.env.NODE_ENV !== 'production';
+
+const noProxyValues = new Set(
+  (process.env.NO_PROXY ?? process.env.no_proxy ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+);
+for (const host of ['127.0.0.1', 'localhost']) {
+  noProxyValues.add(host);
+}
+process.env.NO_PROXY = Array.from(noProxyValues).join(',');
+process.env.no_proxy = process.env.NO_PROXY;
 
 async function main() {
   const boss = new PgBoss(DATABASE_URL);
@@ -33,11 +52,13 @@ async function main() {
     resolveSkills: async () => [],
     resolveMcpServers: async () => [],
   });
-  const sandboxProvider = new OpenSandboxProvider({
-    apiUrl: OPENSANDBOX_API_URL,
-    execHost: EXEC_HOST,
-  });
-  const eventStore = new InMemoryEventStore();
+  const sandboxProvider: SandboxProvider = IS_DEV
+    ? new LocalDevSandboxProvider({ agentWorkerUrl: DEV_AGENT_WORKER_URL })
+    : new OpenSandboxProvider({
+        apiUrl: OPENSANDBOX_API_URL,
+        execHost: EXEC_HOST,
+      });
+  const eventStore = new DrizzleEventStore(db);
   const orchestrator = new RunOrchestrator({
     runService,
     sandboxProvider,
@@ -46,6 +67,18 @@ async function main() {
     resolveProjectIdForAgent: async (agentId: string) => {
       const agent = await agentStore.getById(agentId);
       return agent?.projectId ?? null;
+    },
+    releaseTaskLock: async (runId: string) => {
+      const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
+      if (!run?.taskId) return;
+      await db
+        .update(tasks)
+        .set({
+          activeRunId: null,
+          updatedAt: new Date(),
+          ...(run.status === 'completed' ? { headRunId: run.id } : {}),
+        })
+        .where(and(eq(tasks.id, run.taskId), eq(tasks.activeRunId, runId)));
     },
   });
 

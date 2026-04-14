@@ -13,6 +13,7 @@ function mapRow(row: ConversationRow): Conversation {
   return {
     id: row.id,
     projectId: row.projectId,
+    taskId: row.taskId,
     agentId: row.agentId,
     userId: row.userId,
     title: row.title,
@@ -31,6 +32,7 @@ export class DrizzleConversationDb implements ConversationDb {
       .insert(conversations)
       .values({
         projectId: input.projectId,
+        taskId: input.taskId ?? null,
         userId: input.userId,
         agentId: input.agentId ?? null,
         title: input.title ?? null,

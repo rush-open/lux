@@ -82,6 +82,8 @@ beforeAll(async () => {
     CREATE TABLE IF NOT EXISTS runs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      task_id UUID,
+      conversation_id UUID,
       parent_run_id UUID REFERENCES runs(id) ON DELETE SET NULL,
       status VARCHAR(50) NOT NULL DEFAULT 'queued',
       prompt TEXT NOT NULL,
@@ -145,6 +147,8 @@ describe('DrizzleRunDb', () => {
 
       expect(run.id).toBeTruthy();
       expect(run.agentId).toBe(testAgentId);
+      expect(run.taskId).toBeNull();
+      expect(run.conversationId).toBeNull();
       expect(run.prompt).toBe('Hello world');
       expect(run.status).toBe('queued');
       expect(run.provider).toBe('claude-code');
@@ -165,6 +169,8 @@ describe('DrizzleRunDb', () => {
       const rdb = getRunDb();
       const run = await rdb.create({
         agentId: testAgentId,
+        taskId: '11111111-1111-1111-1111-111111111111',
+        conversationId: '22222222-2222-2222-2222-222222222222',
         prompt: 'Custom run',
         provider: 'bedrock',
         connectionMode: 'bedrock',
@@ -172,6 +178,8 @@ describe('DrizzleRunDb', () => {
         triggerSource: 'api',
       });
 
+      expect(run.taskId).toBe('11111111-1111-1111-1111-111111111111');
+      expect(run.conversationId).toBe('22222222-2222-2222-2222-222222222222');
       expect(run.provider).toBe('bedrock');
       expect(run.connectionMode).toBe('bedrock');
       expect(run.modelId).toBe('claude-3-opus');

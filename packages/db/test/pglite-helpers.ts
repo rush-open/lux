@@ -244,31 +244,41 @@ async function applySchema(db: TestDb): Promise<void> {
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS runs_conversation_id_idx ON runs (conversation_id)
   `);
-  await db.execute(sql`
+  await db
+    .execute(sql`
     ALTER TABLE tasks
     ADD CONSTRAINT tasks_head_run_id_runs_id_fk
     FOREIGN KEY (head_run_id) REFERENCES runs(id) ON DELETE SET NULL
-  `).catch(() => {});
-  await db.execute(sql`
+  `)
+    .catch(() => {});
+  await db
+    .execute(sql`
     ALTER TABLE tasks
     ADD CONSTRAINT tasks_active_run_id_runs_id_fk
     FOREIGN KEY (active_run_id) REFERENCES runs(id) ON DELETE SET NULL
-  `).catch(() => {});
-  await db.execute(sql`
+  `)
+    .catch(() => {});
+  await db
+    .execute(sql`
     ALTER TABLE conversations
     ADD CONSTRAINT conversations_task_id_tasks_id_fk
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
-  `).catch(() => {});
-  await db.execute(sql`
+  `)
+    .catch(() => {});
+  await db
+    .execute(sql`
     ALTER TABLE runs
     ADD CONSTRAINT runs_task_id_tasks_id_fk
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
-  `).catch(() => {});
-  await db.execute(sql`
+  `)
+    .catch(() => {});
+  await db
+    .execute(sql`
     ALTER TABLE runs
     ADD CONSTRAINT runs_conversation_id_conversations_id_fk
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
-  `).catch(() => {});
+  `)
+    .catch(() => {});
 
   // Run events
   await db.execute(sql`

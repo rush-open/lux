@@ -17,6 +17,8 @@ class MockRunDb implements RunDb {
     const run: Run = {
       id: `run-${Date.now()}`,
       agentId: input.agentId,
+      taskId: input.taskId ?? null,
+      conversationId: input.conversationId ?? null,
       parentRunId: input.parentRunId ?? null,
       status: 'queued',
       prompt: input.prompt,
@@ -156,6 +158,8 @@ function makeQueuedRun(id: string, agentId = 'agent-1'): Run {
   return {
     id,
     agentId,
+    taskId: null,
+    conversationId: null,
     parentRunId: null,
     status: 'queued',
     prompt: 'test prompt',
@@ -269,7 +273,7 @@ describe('RunOrchestrator', () => {
       // Verify fetch was called with the right URL
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0];
-      expect(url).toBe('http://localhost:8787/prompt');
+      expect(url).toBe('http://127.0.0.1:8787/prompt');
       expect(init.method).toBe('POST');
 
       const body = JSON.parse(init.body);
@@ -325,6 +329,24 @@ describe('RunOrchestrator', () => {
   // -------------------------------------------------------------------------
 
   describe('endpoint URL failure', () => {
+    const prevNodeEnv = process.env.NODE_ENV;
+    const prevDevAgent = process.env.DEV_AGENT_WORKER_URL;
+
+    beforeEach(() => {
+      // In dev/test, getDevAgentWorkerUrl() bypasses sandbox URL — force production so null endpoint fails.
+      process.env.NODE_ENV = 'production';
+      delete process.env.DEV_AGENT_WORKER_URL;
+    });
+
+    afterEach(() => {
+      process.env.NODE_ENV = prevNodeEnv;
+      if (prevDevAgent !== undefined) {
+        process.env.DEV_AGENT_WORKER_URL = prevDevAgent;
+      } else {
+        delete process.env.DEV_AGENT_WORKER_URL;
+      }
+    });
+
     it('transitions to failed when endpoint URL is null', async () => {
       const run = makeQueuedRun('run-no-endpoint');
       runDb.seed(run);

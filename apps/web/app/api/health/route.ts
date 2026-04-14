@@ -1,4 +1,4 @@
-import { createLogger } from '@lux/observability';
+import { createLogger } from '@open-rush/observability';
 
 const logger = createLogger({ service: 'web:health-api' });
 

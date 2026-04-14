@@ -12,7 +12,7 @@ import { RunEvent, UIMessageChunk } from '../events.js';
 import { Project, ProjectMember } from '../project.js';
 import { Run, RunSpec } from '../run.js';
 import { SandboxInfo } from '../sandbox.js';
-import { CreateTaskRequest, Task } from '../task.js';
+import { CreateTaskConversationRequest, CreateTaskRequest, Task } from '../task.js';
 import { VaultEntry } from '../vault.js';
 
 const UUID = '550e8400-e29b-41d4-a716-446655440000';
@@ -155,6 +155,22 @@ describe('CreateTaskRequest', () => {
     });
     expect(req.agentId).toBe(UUID2);
     expect(req.title).toBe('Implement auth');
+  });
+});
+
+describe('CreateTaskConversationRequest', () => {
+  it('parses empty request body', () => {
+    const req = CreateTaskConversationRequest.parse({});
+    expect(req).toEqual({});
+  });
+
+  it('accepts optional title and agentId', () => {
+    const req = CreateTaskConversationRequest.parse({
+      title: 'Follow-up chat',
+      agentId: UUID2,
+    });
+    expect(req.title).toBe('Follow-up chat');
+    expect(req.agentId).toBe(UUID2);
   });
 });
 
@@ -508,9 +524,40 @@ describe('RunCheckpoint', () => {
 // --- API ---
 
 describe('CreateRunRequest', () => {
-  it('is equivalent to RunSpec', () => {
+  it('parses legacy project mode request', () => {
     const req = CreateRunRequest.parse({ prompt: 'hello', projectId: UUID });
     expect(req.prompt).toBe('hello');
+  });
+
+  it('parses task chat mode request', () => {
+    const req = CreateRunRequest.parse({
+      prompt: 'continue',
+      projectId: UUID,
+      taskId: UUID,
+      conversationId: UUID2,
+    });
+    expect(req.taskId).toBe(UUID);
+    expect(req.conversationId).toBe(UUID2);
+  });
+
+  it('rejects taskId without conversationId', () => {
+    expect(() =>
+      CreateRunRequest.parse({
+        prompt: 'continue',
+        projectId: UUID,
+        taskId: UUID,
+      })
+    ).toThrow(/taskId and conversationId must be provided together/);
+  });
+
+  it('rejects conversationId without taskId', () => {
+    expect(() =>
+      CreateRunRequest.parse({
+        prompt: 'continue',
+        projectId: UUID,
+        conversationId: UUID2,
+      })
+    ).toThrow(/taskId and conversationId must be provided together/);
   });
 });
 

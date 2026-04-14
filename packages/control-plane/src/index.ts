@@ -3,6 +3,7 @@ export * from './agent/index.js';
 export * from './auth/index.js';
 export * from './conversation/index.js';
 export * from './deploy/index.js';
+export { DrizzleEventStore } from './drizzle-event-store.js';
 export {
   type EventStore,
   type EventStoreEvent,
@@ -16,6 +17,7 @@ export * from './memory/index.js';
 export * from './project/index.js';
 export * from './run/index.js';
 export * from './skills/index.js';
+export * from './task/index.js';
 export * from './template/index.js';
 export * from './vault/index.js';
 export * from './version/index.js';

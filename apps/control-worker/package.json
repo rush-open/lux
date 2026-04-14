@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsup src/worker.ts --format esm --dts",
-    "dev": "tsx watch src/worker.ts",
+    "dev": "tsx watch --env-file-if-exists=.env.local src/worker.ts",
     "start": "node dist/worker.js",
     "check": "tsc --noEmit",
     "lint": "biome check .",
@@ -18,6 +18,7 @@
     "@open-rush/db": "workspace:*",
     "@open-rush/sandbox": "workspace:*",
     "@open-rush/stream": "workspace:*",
+    "drizzle-orm": "^0.45.2",
     "pg-boss": "^12.15.0"
   },
   "devDependencies": {

@@ -1,4 +1,12 @@
-import { agents, projectMembers, projects, runEvents, runs, tasks, users } from '../src/schema/index.js';
+import {
+  agents,
+  projectMembers,
+  projects,
+  runEvents,
+  runs,
+  tasks,
+  users,
+} from '../src/schema/index.js';
 import type { TestDb } from './pglite-helpers.js';
 
 export async function createTestUser(db: TestDb, overrides?: { name?: string; email?: string }) {

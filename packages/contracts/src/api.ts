@@ -1,7 +1,18 @@
 import { z } from 'zod';
 import { RunSpec } from './run.js';
 
-export const CreateRunRequest = RunSpec;
+export const CreateRunRequest = RunSpec.superRefine((data, ctx) => {
+  const hasTaskId = data.taskId !== undefined;
+  const hasConversationId = data.conversationId !== undefined;
+
+  if (hasTaskId !== hasConversationId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'taskId and conversationId must be provided together',
+      path: hasTaskId ? ['conversationId'] : ['taskId'],
+    });
+  }
+});
 export type CreateRunRequest = z.infer<typeof CreateRunRequest>;
 
 export const CreateRunResponse = z.object({

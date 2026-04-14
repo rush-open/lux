@@ -4,6 +4,12 @@ import { and, eq, gt } from 'drizzle-orm';
 
 import { apiError, requireAuth, verifyProjectAccess } from '@/lib/api-utils';
 
+/** Maximum SSE connection lifetime (5 minutes) */
+const SSE_MAX_LIFETIME_MS = 5 * 60 * 1000;
+
+/** Poll interval for new events */
+const POLL_INTERVAL_MS = 500;
+
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   let userId: string;
   try {
@@ -15,8 +21,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { id: runId } = await params;
   const lastEventId = request.headers.get('Last-Event-ID');
   const parsedSeq = lastEventId ? Number.parseInt(lastEventId, 10) : Number.NaN;
-  // Non-numeric Last-Event-ID (e.g. client already received DONE) → return empty stream
-  const streamAlreadyFinished = lastEventId !== null && Number.isNaN(parsedSeq);
   const afterSeq = Number.isNaN(parsedSeq) ? -1 : parsedSeq;
 
   // Look up the Run
@@ -39,85 +43,105 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     return apiError(403, 'FORBIDDEN', 'No access to this run');
   }
 
-  // If client already received the full stream (non-numeric Last-Event-ID), return DONE only
-  if (streamAlreadyFinished) {
-    const encoder = new TextEncoder();
-    const doneStream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-        controller.close();
-      },
-    });
-    return new Response(doneStream, {
-      headers: sseHeaders(),
-    });
-  }
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      let currentSeq = afterSeq;
+      let closed = false;
+      let timer: ReturnType<typeof setInterval> | null = null;
+      let lifetimeTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const stream = buildEventStream(db, runService, runId, afterSeq, isTerminal(run.status));
+      const emit = (text: string) => {
+        if (closed) return;
+        controller.enqueue(encoder.encode(text));
+      };
 
-  return new Response(stream, {
-    headers: sseHeaders(),
-  });
-}
+      const cleanup = () => {
+        if (closed) return;
+        closed = true;
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+        if (lifetimeTimer) {
+          clearTimeout(lifetimeTimer);
+          lifetimeTimer = null;
+        }
+        try {
+          controller.close();
+        } catch {
+          // already closed
+        }
+      };
 
-function sseHeaders(): HeadersInit {
-  return {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache, no-transform',
-    Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no',
-  };
-}
+      let polling = false;
+      const poll = async () => {
+        if (closed || polling) return;
+        polling = true;
+        try {
+          // Fetch new events since currentSeq
+          const events = await db
+            .select()
+            .from(runEvents)
+            .where(and(eq(runEvents.runId, runId), gt(runEvents.seq, currentSeq)))
+            .orderBy(runEvents.seq);
 
-function buildEventStream(
-  db: ReturnType<typeof getDbClient>,
-  runService: RunService,
-  runId: string,
-  afterSeq: number,
-  alreadyTerminal: boolean
-): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  let currentSeq = afterSeq;
-  let closed = alreadyTerminal;
-
-  return new ReadableStream({
-    async pull(controller) {
-      try {
-        // Fetch new events since currentSeq
-        const events = await db
-          .select()
-          .from(runEvents)
-          .where(and(eq(runEvents.runId, runId), gt(runEvents.seq, currentSeq)))
-          .orderBy(runEvents.seq);
-
-        if (events.length > 0) {
           for (const event of events) {
             const data = JSON.stringify(event.payload);
-            controller.enqueue(encoder.encode(`id: ${event.seq}\ndata: ${data}\n\n`));
+            emit(`id: ${event.seq}\ndata: ${data}\n\n`);
             currentSeq = event.seq;
           }
-        }
 
-        // Check if run has reached terminal state
-        if (!closed) {
-          const run = await runService.getById(runId);
-          if (run && isTerminal(run.status)) {
-            closed = true;
+          // Check if run has reached terminal state
+          const currentRun = await runService.getById(runId);
+          if (currentRun && isTerminal(currentRun.status)) {
+            // Emit error info for failed runs
+            if (currentRun.status === 'failed' && currentRun.errorMessage) {
+              const errPayload = JSON.stringify({
+                type: 'error',
+                error: currentRun.errorMessage,
+              });
+              emit(`data: ${errPayload}\n\n`);
+            }
+            emit('data: [DONE]\n\n');
+            cleanup();
           }
+        } catch (err) {
+          emit(`data: ${JSON.stringify({ type: 'error', error: String(err) })}\n\n`);
+          emit('data: [DONE]\n\n');
+          cleanup();
+        } finally {
+          polling = false;
         }
+      };
 
-        if (closed) {
-          // All events sent, send DONE and close
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-          controller.close();
-          return;
-        }
+      // Push-based: poll on interval (works with proxies that buffer pull-based streams)
+      timer = setInterval(() => {
+        void poll();
+      }, POLL_INTERVAL_MS);
 
-        // Still in-progress: wait before polling again
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      } catch (err) {
-        controller.error(err);
-      }
+      // Close after max lifetime
+      lifetimeTimer = setTimeout(() => {
+        emit('data: [DONE]\n\n');
+        cleanup();
+      }, SSE_MAX_LIFETIME_MS);
+
+      // Abort when client disconnects
+      request.signal.addEventListener('abort', () => {
+        cleanup();
+      });
+
+      // First poll immediately
+      void poll();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
     },
   });
 }

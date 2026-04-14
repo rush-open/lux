@@ -1,35 +1,65 @@
 /**
  * 工作区路径管理
  *
- * 约定项目工作区路径为 /home/user/workspace/，
- * 每个项目在 /home/user/workspace/{projectId}/ 下。
+ * 路径约定：
+ * - 沙箱容器内：/home/user/workspace/
+ * - 本地开发：项目根目录同级的 workspace/（如 /Users/cy/www/github/workspace/）
  *
- * 可通过环境变量 WORKSPACE_PATH 覆盖（用于本地开发和测试）。
+ * 可通过环境变量 WORKSPACE_PATH 覆盖。
+ * 每个项目在 workspace/{projectId}/ 下。
  */
 
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
-/** 默认工作区根目录（沙箱容器内） */
-const DEFAULT_WORKSPACE_PATH = '/home/user/workspace';
+/** 沙箱容器内的默认路径 */
+const SANDBOX_WORKSPACE_PATH = '/home/user/workspace';
 
-/** 已初始化的工作区路径缓存，避免重复 existsSync 磁盘 IO */
+/**
+ * 从 startDir 向上查找 monorepo 根目录（包含 pnpm-workspace.yaml 或 turbo.json）
+ */
+function findProjectRoot(startDir: string = process.cwd()): string {
+  let currentDir = startDir;
+  for (let i = 0; i < 10; i++) {
+    if (
+      existsSync(join(currentDir, 'pnpm-workspace.yaml')) ||
+      existsSync(join(currentDir, 'turbo.json'))
+    ) {
+      return currentDir;
+    }
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) break;
+    currentDir = parentDir;
+  }
+  return dirname(process.cwd());
+}
+
+function resolveDefaultWorkspacePath(): string {
+  // In sandbox (Linux container), /home/user exists — use the container path.
+  // On macOS / local dev, use project root's sibling directory.
+  if (existsSync(dirname(SANDBOX_WORKSPACE_PATH))) {
+    return SANDBOX_WORKSPACE_PATH;
+  }
+  const projectRoot = findProjectRoot();
+  return join(dirname(projectRoot), 'workspace');
+}
+
 let initializedWorkspacePath: string | null = null;
 
 /**
  * 获取工作区根路径
  *
  * 优先级：
- * 1. 环境变量 WORKSPACE_PATH（用于本地开发/测试）
- * 2. 默认路径 /home/user/workspace
+ * 1. 环境变量 WORKSPACE_PATH
+ * 2. /home/user/workspace（沙箱）
+ * 3. {monorepo根目录}/../workspace（本地开发）
  *
- * 首次调用时创建目录，后续调用直接返回缓存路径。
+ * 首次调用时创建目录，后续直接返回缓存。
  */
 export function getWorkspacePath(): string {
-  const workspacePath = process.env.WORKSPACE_PATH ?? DEFAULT_WORKSPACE_PATH;
+  const workspacePath = process.env.WORKSPACE_PATH ?? resolveDefaultWorkspacePath();
 
   if (initializedWorkspacePath !== workspacePath) {
-    console.log(`[Workspace] 确保工作区目录存在: ${workspacePath}`);
     mkdirSync(workspacePath, { recursive: true });
     initializedWorkspacePath = workspacePath;
   }
@@ -44,8 +74,6 @@ export function resetWorkspaceCache(): void {
 
 /**
  * 获取工作区路径（末尾带斜杠）
- *
- * 适用于路径拼接场景：`${workspacePathWithSlash}${projectId}`
  */
 export function getWorkspacePathWithSlash(): string {
   return `${getWorkspacePath()}/`;
@@ -53,9 +81,6 @@ export function getWorkspacePathWithSlash(): string {
 
 /**
  * 获取项目路径
- *
- * @param projectId 项目 ID
- * @returns 项目完整路径，如 /home/user/workspace/p_abc123
  */
 export function getProjectPath(projectId: string): string {
   return join(getWorkspacePath(), projectId);
@@ -63,9 +88,6 @@ export function getProjectPath(projectId: string): string {
 
 /**
  * 确保项目目录存在
- *
- * @param projectId 项目 ID
- * @returns 项目完整路径
  */
 export function ensureProjectDir(projectId: string): string {
   validateProjectId(projectId);
@@ -76,8 +98,6 @@ export function ensureProjectDir(projectId: string): string {
 
 /**
  * 校验 projectId 格式，防止路径遍历
- *
- * 只允许字母、数字、下划线、横杠、点号，禁止 .. / \ 等危险字符。
  */
 const PROJECT_ID_PATTERN = /^[a-zA-Z0-9_-][a-zA-Z0-9._-]*$/;
 

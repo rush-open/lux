@@ -100,7 +100,16 @@ const COMPLEX_KEYWORDS = [
   '状态管理',
 ];
 
-const SIMPLE_KEYWORDS = ['hello world', 'simple', 'static', 'html', 'basic', '简单', '静态', '展示'];
+const SIMPLE_KEYWORDS = [
+  'hello world',
+  'simple',
+  'static',
+  'html',
+  'basic',
+  '简单',
+  '静态',
+  '展示',
+];
 
 /** 按优先级排列的匹配规则 */
 const MATCH_RULES: Array<{ keywords: string[]; type: TemplateMetadata['type'] }> = [

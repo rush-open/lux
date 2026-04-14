@@ -1,7 +1,6 @@
 'use client';
 
-import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport, type UIMessage } from 'ai';
+import type { UIMessage } from 'ai';
 import {
   ArrowUp,
   ChevronLeft,
@@ -16,7 +15,7 @@ import {
   Square,
 } from 'lucide-react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
 import { Message, MessageContent } from '@/components/ai-elements/message';
 import { PartRenderer } from '@/components/ai-elements/part-renderer';
@@ -24,118 +23,377 @@ import { LoadingDots } from '@/components/ui/loading-dots';
 import { useChatAutoSave } from '@/hooks/use-chat-auto-save';
 import { useStreamHeartbeat } from '@/hooks/use-stream-heartbeat';
 import { useStreamRecovery } from '@/hooks/use-stream-recovery';
-import { useStreamStop } from '@/hooks/use-stream-stop';
+import { applyAssistantTextChunk, isStreamError, readRunSseStream } from '@/lib/run-chat-stream';
 import { cn } from '@/lib/utils';
 
 type PreviewTab = 'preview' | 'code' | 'files';
+
+type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error';
+
+function seqStorageKey(runId: string) {
+  return `lux:lastEventSeq:${runId}`;
+}
+
+function getUserText(m: UIMessage): string {
+  return m.parts
+    .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+    .map((p) => p.text)
+    .join('');
+}
+
+function buildRecoveryMessages(
+  loaded: UIMessage[],
+  run: { id: string; prompt: string }
+): UIMessage[] {
+  const out = [...loaded];
+  while (out.length > 0 && out[out.length - 1].role === 'assistant') {
+    out.pop();
+  }
+  const last = out[out.length - 1];
+  const lastUserText = last?.role === 'user' ? getUserText(last) : '';
+  if (lastUserText !== run.prompt) {
+    out.push({
+      id: `user-${run.id}`,
+      role: 'user',
+      parts: [{ type: 'text', text: run.prompt }],
+    });
+  }
+  out.push({
+    id: `asst-${run.id}`,
+    role: 'assistant',
+    parts: [{ type: 'text', text: '' }],
+  });
+  return out;
+}
 
 export default function ChatPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
 
   const projectId = searchParams.get('projectId') ?? undefined;
+  const taskId = searchParams.get('taskId') ?? undefined;
   const conversationId = params.id;
+  const agentId = searchParams.get('agentId') ?? undefined;
   const agentName = searchParams.get('agent') || 'Builder';
   const initialPrompt = searchParams.get('prompt')?.trim() ?? '';
 
-  // Agent metadata (provider label = backend connection mode)
   const [providerLabel, setProviderLabel] = useState('Claude Code');
   useEffect(() => {
     let cancelled = false;
+    const runtimeLabels: Record<string, string> = {
+      'claude-code': 'Claude Code',
+    };
     const backendLabels: Record<string, string> = {
       bedrock: 'Bedrock',
       anthropic: 'Anthropic API',
       custom: 'Custom Endpoint',
     };
 
-    fetch('/api/health')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((healthJson) => {
+    Promise.all([
+      agentId
+        ? fetch(`/api/agents/${encodeURIComponent(agentId)}`).then((r) => (r.ok ? r.json() : null))
+        : null,
+      fetch('/api/health').then((r) => (r.ok ? r.json() : null)),
+    ])
+      .then(([agentJson, healthJson]) => {
         if (cancelled) return;
+        const runtime = runtimeLabels[agentJson?.data?.providerType] ?? 'Claude Code';
         const backend = backendLabels[healthJson?.provider] ?? '';
-        setProviderLabel(backend ? `Claude Code · ${backend}` : 'Claude Code');
+        setProviderLabel(backend ? `${runtime} · ${backend}` : runtime);
       })
       .catch(() => {});
 
     return () => {
       cancelled = true;
     };
+  }, [agentId]);
+
+  const [messages, setMessages] = useState<UIMessage[]>([]);
+  const [status, setStatus] = useState<ChatStatus>('ready');
+  const [error, setError] = useState<Error | null>(null);
+
+  const currentRunIdRef = useRef<string | null>(null);
+  const lastEventSeqRef = useRef(-1);
+  const streamAbortRef = useRef<AbortController | null>(null);
+
+  const clearError = useCallback(() => setError(null), []);
+
+  const consumeRunStream = useCallback(async (runId: string, afterSeq: number) => {
+    // Always end any in-flight stream first. A previous run can hold the connection for minutes
+    // (server polls run_events); without this, new sends / heartbeat resume no-op.
+    streamAbortRef.current?.abort();
+    const ac = new AbortController();
+    streamAbortRef.current = ac;
+    currentRunIdRef.current = runId;
+
+    setStatus('streaming');
+    const assistantId = `asst-${runId}`;
+
+    try {
+      const headers: Record<string, string> = {};
+      if (afterSeq >= 0) {
+        headers['Last-Event-ID'] = String(afterSeq);
+      }
+
+      const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/stream`, {
+        signal: ac.signal,
+        headers,
+      });
+
+      if (!res.ok) {
+        throw new Error(`Stream failed: ${res.status}`);
+      }
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      for await (const ev of readRunSseStream(reader)) {
+        if (ev.done) {
+          sessionStorage.removeItem(seqStorageKey(runId));
+          if (currentRunIdRef.current === runId) {
+            setStatus('ready');
+          }
+          break;
+        }
+
+        // Check for run-level error events
+        const streamErr = isStreamError(ev.payload);
+        if (streamErr) {
+          setError(new Error(streamErr));
+          setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+          setStatus('error');
+          continue;
+        }
+
+        lastEventSeqRef.current = ev.seq;
+        sessionStorage.setItem(seqStorageKey(runId), String(ev.seq));
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === assistantId);
+          const curText =
+            idx >= 0 && prev[idx].parts[0]?.type === 'text' ? prev[idx].parts[0].text : '';
+          const nextText = applyAssistantTextChunk(curText, ev.payload);
+          if (idx === -1) {
+            return [
+              ...prev,
+              {
+                id: assistantId,
+                role: 'assistant',
+                parts: [{ type: 'text', text: nextText }],
+              },
+            ];
+          }
+          const cur = prev[idx];
+          const next = [...prev];
+          next[idx] = {
+            ...cur,
+            parts: [{ type: 'text', text: nextText }],
+          };
+          return next;
+        });
+      }
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') {
+        if (currentRunIdRef.current === runId) {
+          setStatus('ready');
+        }
+      } else {
+        setError(e instanceof Error ? e : new Error(String(e)));
+        setStatus('error');
+      }
+    }
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Transport & useChat
-  // ---------------------------------------------------------------------------
-  const transport = useMemo(
-    () =>
-      new DefaultChatTransport({
-        api: '/api/chat',
-        body: { projectId, conversationId },
-      }),
-    [projectId, conversationId]
-  );
+  const consumeRunStreamRef = useRef(consumeRunStream);
+  consumeRunStreamRef.current = consumeRunStream;
 
-  const { messages, setMessages, sendMessage, status, stop, error, clearError, resumeStream } =
-    useChat({
-      id: `chat-${conversationId}`,
-      transport,
-    });
-
-  const isLoading = status === 'submitted' || status === 'streaming';
-
-  // ---------------------------------------------------------------------------
-  // Stream reliability
-  // ---------------------------------------------------------------------------
   const { isDisconnect, resetDisconnect } = useStreamRecovery();
-  const streamStop = useStreamStop(status);
 
-  const resumeStreamWithReset = useCallback(() => {
+  const resumeAfterDisconnect = useCallback(() => {
     resetDisconnect();
-    resumeStream?.();
-  }, [resetDisconnect, resumeStream]);
+    const rid = currentRunIdRef.current;
+    if (!rid) return;
+    const seq = lastEventSeqRef.current;
+    void consumeRunStreamRef.current(rid, seq);
+  }, [resetDisconnect]);
 
-  useStreamHeartbeat(projectId, status, isDisconnect, resumeStreamWithReset, {
-    enabled: messages.length > 0,
+  useStreamHeartbeat(projectId, status, isDisconnect, resumeAfterDisconnect, {
+    enabled: Boolean(taskId && projectId && messages.length > 0),
     interval: 1500,
     maxRetries: 5,
   });
 
-  // ---------------------------------------------------------------------------
-  // Load history messages
-  // ---------------------------------------------------------------------------
+  const isLoading = status === 'submitted' || status === 'streaming';
+
+  const startRun = useCallback(
+    async (text: string) => {
+      if (!projectId || !taskId) {
+        setError(new Error('缺少 projectId 或 taskId，请从首页进入聊天。'));
+        setStatus('error');
+        return;
+      }
+      clearError();
+      setStatus('submitted');
+
+      const userMsgId = crypto.randomUUID();
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: userMsgId,
+          role: 'user',
+          parts: [{ type: 'text', text }],
+        },
+        {
+          id: 'pending-asst',
+          role: 'assistant',
+          parts: [{ type: 'text', text: '' }],
+        },
+      ]);
+
+      try {
+        const res = await fetch('/api/runs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: text,
+            projectId,
+            taskId,
+            conversationId,
+            ...(agentId ? { agentId } : {}),
+          }),
+        });
+
+        const body = (await res.json()) as {
+          success?: boolean;
+          data?: { runId?: string; activeRunId?: string };
+        };
+
+        if (res.status === 409) {
+          const activeRunId = body.data?.activeRunId;
+          setMessages((prev) => prev.filter((m) => m.id !== userMsgId && m.id !== 'pending-asst'));
+          setStatus('ready');
+          setError(new Error('该任务已有进行中的运行，正在尝试附着…'));
+          if (activeRunId) {
+            const rr = await fetch(`/api/runs/${encodeURIComponent(activeRunId)}`).then((r) =>
+              r.json()
+            );
+            if (rr.success && rr.data?.id) {
+              clearError();
+              const run = rr.data as { id: string; prompt: string };
+              setMessages((prev) => buildRecoveryMessages(prev, run));
+              const raw = sessionStorage.getItem(seqStorageKey(run.id));
+              const parsed = raw === null ? -1 : Number.parseInt(raw, 10);
+              const afterSeq = Number.isNaN(parsed) ? -1 : parsed;
+              lastEventSeqRef.current = afterSeq;
+              void consumeRunStreamRef.current(run.id, afterSeq);
+            }
+          }
+          return;
+        }
+
+        if (!res.ok || !body.success || !body.data?.runId) {
+          throw new Error('无法创建运行');
+        }
+
+        const runId = body.data.runId;
+        currentRunIdRef.current = runId;
+        setMessages((prev) =>
+          prev.map((m) => (m.id === 'pending-asst' ? { ...m, id: `asst-${runId}` } : m))
+        );
+
+        lastEventSeqRef.current = -1;
+        await consumeRunStreamRef.current(runId, -1);
+      } catch (e) {
+        setMessages((prev) => prev.filter((m) => m.id !== userMsgId && m.id !== 'pending-asst'));
+        setError(e instanceof Error ? e : new Error(String(e)));
+        setStatus('error');
+      }
+    },
+    [projectId, taskId, conversationId, agentId, clearError]
+  );
+
+  const stopRun = useCallback(async () => {
+    streamAbortRef.current?.abort();
+    const rid = currentRunIdRef.current;
+    if (rid) {
+      await fetch(`/api/runs/${encodeURIComponent(rid)}/abort`, {
+        method: 'POST',
+      }).catch(() => {});
+    }
+    setStatus('ready');
+  }, []);
+
   const loadedConvRef = useRef<string | null>(null);
   useEffect(() => {
     if (!conversationId || conversationId === loadedConvRef.current) return;
     loadedConvRef.current = conversationId;
 
-    fetch(`/api/chat/${conversationId}/messages`)
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success && Array.isArray(res.data) && res.data.length > 0) {
-          setMessages(res.data as UIMessage[]);
-        }
-      })
-      .catch(() => {});
-  }, [conversationId, setMessages]);
+    // If there's an initialPrompt, the initialPrompt effect will handle
+    // sending and stream consumption. Skip auto-attach here to avoid
+    // racing with it (both call consumeRunStream which aborts the other).
+    const hasInitialPrompt = Boolean(initialPrompt);
 
-  // ---------------------------------------------------------------------------
-  // Auto-save
-  // ---------------------------------------------------------------------------
+    let cancelled = false;
+
+    void (async () => {
+      const msgRes = await fetch(`/api/chat/${encodeURIComponent(conversationId)}/messages`).then(
+        (r) => r.json()
+      );
+      const loaded = (
+        msgRes.success && Array.isArray(msgRes.data) ? msgRes.data : []
+      ) as UIMessage[];
+
+      if (cancelled) return;
+
+      if (!taskId || !projectId) {
+        setMessages(loaded);
+        return;
+      }
+
+      // When there's an initialPrompt, just load messages — don't attach to a stream.
+      if (hasInitialPrompt && loaded.length === 0) {
+        setMessages(loaded);
+        return;
+      }
+
+      const tr = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`).then((r) => r.json());
+      if (cancelled || !tr.success || !tr.data?.activeRunId) {
+        setMessages(loaded);
+        return;
+      }
+
+      const runRes = await fetch(`/api/runs/${encodeURIComponent(tr.data.activeRunId)}`).then((r) =>
+        r.json()
+      );
+      if (cancelled || !runRes.success || !runRes.data?.id) {
+        setMessages(loaded);
+        return;
+      }
+
+      const run = runRes.data as { id: string; prompt: string };
+      const raw = sessionStorage.getItem(seqStorageKey(run.id));
+      const parsed = raw === null ? -1 : Number.parseInt(raw, 10);
+      const afterSeq = Number.isNaN(parsed) ? -1 : parsed;
+      const next = buildRecoveryMessages(loaded, run);
+      setMessages(next);
+      lastEventSeqRef.current = afterSeq;
+      void consumeRunStreamRef.current(run.id, afterSeq);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, taskId, projectId, initialPrompt]);
+
   useChatAutoSave({ conversationId, messages, status, model: 'glm-4.7' });
 
-  // ---------------------------------------------------------------------------
-  // Send initial prompt from Home page
-  // ---------------------------------------------------------------------------
   const didSendInitialRef = useRef(false);
   useEffect(() => {
     if (!initialPrompt || status !== 'ready') return;
     if (didSendInitialRef.current || messages.length > 0) return;
+    if (!taskId || !projectId) return;
     didSendInitialRef.current = true;
-    sendMessage({ text: initialPrompt });
-  }, [initialPrompt, sendMessage, status, messages.length]);
+    void startRun(initialPrompt);
+  }, [initialPrompt, status, messages.length, taskId, projectId, startRun]);
 
-  // ---------------------------------------------------------------------------
-  // Local state
-  // ---------------------------------------------------------------------------
   const [input, setInput] = useState('');
   const [activeTab, setActiveTab] = useState<PreviewTab | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -143,11 +401,16 @@ export default function ChatPage() {
   const handleSubmit = useCallback(() => {
     const text = input.trim();
     if (!text || isLoading) return;
+    if (!taskId || !projectId) {
+      setError(new Error('缺少 projectId 或 taskId'));
+      setStatus('error');
+      return;
+    }
     setInput('');
     clearError();
-    sendMessage({ text });
+    void startRun(text);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-  }, [input, isLoading, sendMessage, clearError]);
+  }, [input, isLoading, startRun, clearError, taskId, projectId]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -166,12 +429,10 @@ export default function ChatPage() {
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
+  const chatStatusForUi = status;
+
   return (
     <div className="flex flex-col h-full">
-      {/* Top bar */}
       <div className="flex items-center justify-between px-5 py-2.5 border-b border-border shrink-0">
         <div className="flex items-center gap-3">
           <div className="size-7 rounded-lg bg-blue-50 dark:bg-blue-950 flex items-center justify-center text-[11px] font-bold text-blue-600 dark:text-blue-400">
@@ -223,11 +484,15 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Body */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* Chat Panel */}
         <div className={cn('flex flex-col min-w-[380px]', activeTab ? 'w-[42%]' : 'flex-1')}>
           <div className="flex-1 overflow-y-auto px-5 py-5">
+            {(!taskId || !projectId) && (
+              <div className="mx-auto max-w-2xl mb-4 rounded-lg bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
+                缺少 task 或项目上下文。请从首页「开始聊天」进入，或从侧边栏打开会话。
+              </div>
+            )}
+
             {error && (
               <div className="mx-auto max-w-2xl mb-4 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
                 {error.message || 'An error occurred. Please try again.'}
@@ -252,13 +517,15 @@ export default function ChatPage() {
                           part={part}
                           message={message}
                           index={partIndex}
-                          status={status}
+                          status={chatStatusForUi}
                           isLastMessage={messageIndex === messages.length - 1}
                         />
                       ))}
                       {isLoading &&
                         messageIndex === messages.length - 1 &&
-                        message.role === 'user' && (
+                        (message.role === 'user' ||
+                          (message.role === 'assistant' &&
+                            !message.parts.some((p) => p.type === 'text' && p.text))) && (
                           <div className="flex items-center gap-2 py-2 text-muted-foreground">
                             <LoadingDots size="md" label="Thinking" />
                           </div>
@@ -270,7 +537,6 @@ export default function ChatPage() {
             </Conversation>
           </div>
 
-          {/* Input */}
           <div className="border-t border-border px-4 py-3 shrink-0">
             <div className="max-w-2xl mx-auto">
               <div className="flex items-end gap-2.5 border border-border rounded-xl p-2.5 bg-card focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/10 transition-all">
@@ -287,13 +553,13 @@ export default function ChatPage() {
                   onKeyDown={handleKeyDown}
                   placeholder="Continue the conversation..."
                   rows={1}
-                  disabled={isLoading}
+                  disabled={isLoading || !taskId || !projectId}
                   className="flex-1 bg-transparent border-none outline-none text-[13px] resize-none min-h-[24px] max-h-[200px] placeholder:text-muted-foreground/50 leading-relaxed disabled:opacity-50"
                 />
                 {isLoading ? (
                   <button
                     type="button"
-                    onClick={() => streamStop(projectId, messages.length, stop)}
+                    onClick={() => void stopRun()}
                     className="size-8 rounded-lg bg-destructive/10 text-destructive flex items-center justify-center hover:bg-destructive/20 transition cursor-pointer shrink-0"
                   >
                     <Square className="size-[18px]" />
@@ -321,13 +587,9 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Preview Panel (collapsed by default) */}
         {activeTab && (
           <>
-            <div
-              className="w-[3px] shrink-0 relative cursor-col-resize group flex items-center justify-center hover:bg-primary/10 transition-colors"
-              title="Drag to resize"
-            >
+            <div className="w-[3px] shrink-0 relative cursor-col-resize group flex items-center justify-center hover:bg-primary/10 transition-colors">
               <div className="w-1 h-8 rounded-full bg-border group-hover:bg-muted-foreground transition-colors" />
             </div>
             <div className="flex-1 flex flex-col min-w-0 bg-muted/30">

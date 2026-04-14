@@ -4,9 +4,9 @@
  * Streams AI responses via Claude Code SDK (supports Anthropic API / AWS Bedrock / custom endpoint).
  */
 
+import { createLogger } from '@open-rush/observability';
 import { convertToModelMessages, streamText, type UIMessage } from 'ai';
 import { claudeCode } from 'ai-sdk-provider-claude-code';
-import { createLogger } from '@lux/observability';
 import { registerAbortController, unregisterAbortController } from '@/lib/ai/stream-abort-registry';
 import { requireAuth } from '@/lib/api-utils';
 
