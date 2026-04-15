@@ -33,3 +33,5 @@ test-results/
 *.log
 
 .pnpm-lock.yaml
+
+.claude/worktrees/

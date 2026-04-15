@@ -3,8 +3,8 @@ import {
   DrizzleConversationDb,
   reconstructMessages,
 } from '@open-rush/control-plane';
-import { agents, getDbClient, runEvents, runs } from '@open-rush/db';
-import { and, eq } from 'drizzle-orm';
+import { getDbClient, runEvents, runs } from '@open-rush/db';
+import { eq } from 'drizzle-orm';
 
 import { apiError, apiSuccess, requireAuth } from '@/lib/api-utils';
 
@@ -30,21 +30,16 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return apiError(403, 'FORBIDDEN', 'No access to this conversation');
   }
 
-  // Find runs associated with this conversation's agent within the same project
-  const associatedRuns = conversation.agentId
-    ? await db
-        .select()
-        .from(runs)
-        .innerJoin(agents, eq(runs.agentId, agents.id))
-        .where(
-          and(eq(runs.agentId, conversation.agentId), eq(agents.projectId, conversation.projectId))
-        )
-        .orderBy(runs.createdAt)
-    : [];
+  // Runs scoped to this chat window (task-chat-run model)
+  const associatedRuns = await db
+    .select()
+    .from(runs)
+    .where(eq(runs.conversationId, id))
+    .orderBy(runs.createdAt);
 
   // Reconstruct messages from each run's events
   const allMessages = [];
-  for (const { runs: run } of associatedRuns) {
+  for (const run of associatedRuns) {
     const events = await db
       .select()
       .from(runEvents)

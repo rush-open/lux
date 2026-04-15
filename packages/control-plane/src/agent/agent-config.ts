@@ -9,6 +9,7 @@ export interface AgentConfig {
   description?: string | null;
   icon?: string | null;
   systemPrompt: string | null;
+  appendSystemPrompt?: string | null;
   mcpServers?: string[];
   skills?: string[];
   allowedTools?: string[];
@@ -32,13 +33,12 @@ const BUILTIN_AGENTS: AgentConfig[] = [
   {
     id: 'web-builder',
     projectId: null,
-    name: 'Web Builder',
+    name: 'web-builder',
     scope: 'builtin',
     status: 'active',
     description: 'Build and iterate on web applications in the project workspace.',
     icon: 'code',
-    systemPrompt:
-      'You are a web development assistant. Help users build web applications using modern technologies. You can create, edit, and manage files in the project workspace.',
+    systemPrompt: null,
     allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
     skills: [],
     mcpServers: [],

@@ -1,4 +1,9 @@
-export { AgentBridge, type AgentBridgeConfig, type AgentBridgeResult } from './agent-bridge.js';
+export {
+  AgentBridge,
+  type AgentBridgeAgentConfig,
+  type AgentBridgeConfig,
+  type AgentBridgeResult,
+} from './agent-bridge.js';
 export { type AgentContext, AgentExecutor, type AgentExecutorDeps } from './agent-executor.js';
 export {
   type Checkpoint,

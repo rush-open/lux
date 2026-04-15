@@ -3,6 +3,8 @@ import { canTransition, isTerminal, type RunStatus } from './run-state-machine.j
 export interface Run {
   id: string;
   agentId: string;
+  taskId: string | null;
+  conversationId: string | null;
   parentRunId: string | null;
   status: RunStatus;
   prompt: string;
@@ -23,6 +25,8 @@ export interface Run {
 export interface CreateRunInput {
   agentId: string;
   prompt: string;
+  taskId?: string | null;
+  conversationId?: string | null;
   parentRunId?: string;
   provider?: string;
   connectionMode?: string;

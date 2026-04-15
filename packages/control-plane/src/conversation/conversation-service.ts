@@ -1,6 +1,7 @@
 export interface Conversation {
   id: string;
   projectId: string;
+  taskId: string | null;
   agentId: string | null;
   userId: string;
   title: string | null;
@@ -12,6 +13,7 @@ export interface Conversation {
 
 export interface CreateConversationInput {
   projectId: string;
+  taskId?: string | null;
   userId: string;
   agentId?: string;
   title?: string;

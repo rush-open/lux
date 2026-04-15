@@ -2,10 +2,10 @@ import type { AgentConfig } from '../agent/agent-config.js';
 
 export interface AgentContext {
   agentConfig: AgentConfig;
+  projectId: string;
   env: Record<string, string>;
   skills: string[];
   mcpServers: string[];
-  systemPrompt: string;
 }
 
 export interface AgentExecutorDeps {
@@ -38,10 +38,10 @@ export class AgentExecutor {
 
     return {
       agentConfig,
+      projectId,
       env,
       skills: filteredSkills,
       mcpServers: filteredMcp,
-      systemPrompt: agentConfig.systemPrompt ?? '',
     };
   }
 }

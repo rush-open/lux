@@ -14,6 +14,8 @@ class MockRunDb implements RunDb {
     const run: Run = {
       id: `run-${Date.now()}`,
       agentId: input.agentId,
+      taskId: input.taskId ?? null,
+      conversationId: input.conversationId ?? null,
       parentRunId: input.parentRunId ?? null,
       status: 'queued',
       prompt: input.prompt,
@@ -134,6 +136,8 @@ function makeRun(id: string, parentRunId: string | null = null): Run {
   return {
     id,
     agentId: 'agent-1',
+    taskId: null,
+    conversationId: null,
     parentRunId,
     status: 'queued',
     prompt: 'test prompt',

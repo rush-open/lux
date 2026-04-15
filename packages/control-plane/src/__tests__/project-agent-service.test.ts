@@ -53,6 +53,7 @@ beforeAll(async () => {
       provider_type VARCHAR(50) NOT NULL DEFAULT 'claude-code',
       model VARCHAR(255),
       system_prompt TEXT,
+      append_system_prompt TEXT,
       allowed_tools JSONB NOT NULL DEFAULT '[]'::jsonb,
       skills JSONB NOT NULL DEFAULT '[]'::jsonb,
       mcp_servers JSONB NOT NULL DEFAULT '[]'::jsonb,

@@ -1,11 +1,16 @@
 /**
  * Chat Start API — POST /api/chat/start
  *
- * One-step: auto-creates default project (if needed) + conversation.
- * Returns { projectId, conversationId } so the frontend can start chatting.
+ * One-step: auto-creates default project (if needed) + task + conversation.
+ * Returns { projectId, taskId, conversationId } so the frontend can start chatting.
  */
 
-import { ConversationService, DrizzleConversationDb } from '@open-rush/control-plane';
+import {
+  ConversationService,
+  DrizzleConversationDb,
+  DrizzleTaskDb,
+  TaskService,
+} from '@open-rush/control-plane';
 import { getDbClient, projects } from '@open-rush/db';
 import { and, eq, isNull } from 'drizzle-orm';
 import { resolveAgentIdForProject } from '@/lib/agents/resolve-agent-id';
@@ -79,16 +84,30 @@ export async function POST(req: Request) {
     return apiError(400, 'INVALID_AGENT', error instanceof Error ? error.message : 'Invalid agent');
   }
 
-  // 2. Create conversation
-  const service = new ConversationService(new DrizzleConversationDb(db));
-  const conversation = await service.create({
-    projectId: project.id,
-    userId,
-    agentId,
+  // 2. Create task + first conversation
+  const { task, conversation } = await db.transaction(async (tx) => {
+    const taskService = new TaskService(new DrizzleTaskDb(tx as never));
+    const conversationService = new ConversationService(new DrizzleConversationDb(tx as never));
+
+    const task = await taskService.create({
+      projectId: project.id,
+      createdBy: userId,
+      agentId,
+    });
+
+    const conversation = await conversationService.create({
+      projectId: project.id,
+      taskId: task.id,
+      userId,
+      agentId,
+    });
+
+    return { task, conversation };
   });
 
   return apiSuccess({
     projectId: project.id,
+    taskId: task.id,
     conversationId: conversation.id,
   });
 }

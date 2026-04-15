@@ -12,6 +12,7 @@ import { RunEvent, UIMessageChunk } from '../events.js';
 import { Project, ProjectMember } from '../project.js';
 import { Run, RunSpec } from '../run.js';
 import { SandboxInfo } from '../sandbox.js';
+import { CreateTaskConversationRequest, CreateTaskRequest, Task } from '../task.js';
 import { VaultEntry } from '../vault.js';
 
 const UUID = '550e8400-e29b-41d4-a716-446655440000';
@@ -36,6 +37,8 @@ describe('Run', () => {
     expect(r.connectionMode).toBe('anthropic');
     expect(r.retryCount).toBe(0);
     expect(r.maxRetries).toBe(3);
+    expect(r.taskId).toBeNull();
+    expect(r.conversationId).toBeNull();
     expect(r.parentRunId).toBeNull();
   });
 
@@ -91,13 +94,83 @@ describe('RunSpec', () => {
     const s = RunSpec.parse({
       prompt: 'hello',
       projectId: UUID,
+      taskId: UUID,
+      conversationId: UUID2,
       agentId: UUID2,
       connectionMode: 'bedrock',
       model: 'claude-sonnet-4-6',
       triggerSource: 'webhook',
     });
+    expect(s.taskId).toBe(UUID);
+    expect(s.conversationId).toBe(UUID2);
     expect(s.connectionMode).toBe('bedrock');
     expect(s.triggerSource).toBe('webhook');
+  });
+});
+
+describe('Task', () => {
+  const validTask = {
+    id: UUID,
+    projectId: UUID2,
+    createdBy: UUID,
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+
+  it('parses with defaults', () => {
+    const t = Task.parse(validTask);
+    expect(t.agentId).toBeNull();
+    expect(t.title).toBeNull();
+    expect(t.status).toBe('active');
+    expect(t.handoffSummary).toBeNull();
+    expect(t.headRunId).toBeNull();
+    expect(t.activeRunId).toBeNull();
+  });
+
+  it('accepts optional ids and summary', () => {
+    const t = Task.parse({
+      ...validTask,
+      agentId: UUID2,
+      title: 'Auth task',
+      handoffSummary: 'Continue auth flow',
+      headRunId: UUID,
+      activeRunId: UUID2,
+    });
+    expect(t.title).toBe('Auth task');
+    expect(t.handoffSummary).toContain('auth');
+  });
+});
+
+describe('CreateTaskRequest', () => {
+  it('parses minimal valid request', () => {
+    const req = CreateTaskRequest.parse({ projectId: UUID });
+    expect(req.projectId).toBe(UUID);
+  });
+
+  it('accepts optional agentId and title', () => {
+    const req = CreateTaskRequest.parse({
+      projectId: UUID,
+      agentId: UUID2,
+      title: 'Implement auth',
+    });
+    expect(req.agentId).toBe(UUID2);
+    expect(req.title).toBe('Implement auth');
+  });
+});
+
+describe('CreateTaskConversationRequest', () => {
+  it('parses empty request body', () => {
+    const req = CreateTaskConversationRequest.parse({});
+    expect(req).toEqual({});
+  });
+
+  it('accepts optional title and agentId', () => {
+    const req = CreateTaskConversationRequest.parse({
+      title: 'Follow-up chat',
+      agentId: UUID2,
+    });
+    expect(req.title).toBe('Follow-up chat');
+    expect(req.agentId).toBe(UUID2);
   });
 });
 
@@ -451,9 +524,40 @@ describe('RunCheckpoint', () => {
 // --- API ---
 
 describe('CreateRunRequest', () => {
-  it('is equivalent to RunSpec', () => {
+  it('parses legacy project mode request', () => {
     const req = CreateRunRequest.parse({ prompt: 'hello', projectId: UUID });
     expect(req.prompt).toBe('hello');
+  });
+
+  it('parses task chat mode request', () => {
+    const req = CreateRunRequest.parse({
+      prompt: 'continue',
+      projectId: UUID,
+      taskId: UUID,
+      conversationId: UUID2,
+    });
+    expect(req.taskId).toBe(UUID);
+    expect(req.conversationId).toBe(UUID2);
+  });
+
+  it('rejects taskId without conversationId', () => {
+    expect(() =>
+      CreateRunRequest.parse({
+        prompt: 'continue',
+        projectId: UUID,
+        taskId: UUID,
+      })
+    ).toThrow(/taskId and conversationId must be provided together/);
+  });
+
+  it('rejects conversationId without taskId', () => {
+    expect(() =>
+      CreateRunRequest.parse({
+        prompt: 'continue',
+        projectId: UUID,
+        conversationId: UUID2,
+      })
+    ).toThrow(/taskId and conversationId must be provided together/);
   });
 });
 

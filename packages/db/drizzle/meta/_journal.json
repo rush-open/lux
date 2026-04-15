@@ -50,6 +50,20 @@
       "when": 1776072355525,
       "tag": "0006_abandoned_robbie_robertson",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1776220800000,
+      "tag": "0007_task_chat_run",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1776153549897,
+      "tag": "0008_sharp_dust",
+      "breakpoints": true
     }
   ]
 }

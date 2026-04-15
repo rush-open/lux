@@ -18,6 +18,8 @@ export interface RunOrchestratorDeps {
   checkpointService?: CheckpointService;
   agentExecutor?: AgentExecutor;
   resolveProjectIdForAgent?: (agentId: string) => Promise<string | null>;
+  /** Release the task's active_run_id lock after a run reaches a terminal state. */
+  releaseTaskLock?: (runId: string) => Promise<void>;
 }
 
 export class RunOrchestrator {
@@ -65,7 +67,9 @@ export class RunOrchestrator {
       }
 
       // 4. preparing → running
-      const endpointUrl = await this.deps.sandboxProvider.getEndpointUrl(sandboxId, 8787);
+      const endpointUrl =
+        this.getDevAgentWorkerUrl() ??
+        (await this.deps.sandboxProvider.getEndpointUrl(sandboxId, 8787));
       if (!endpointUrl) {
         throw new Error('Sandbox endpoint URL not available');
       }
@@ -81,9 +85,17 @@ export class RunOrchestrator {
       const { response } = await agentBridge.sendPrompt(fullPrompt, {
         sessionId: runId,
         env: agentContext?.env,
-        systemPrompt: agentContext?.systemPrompt,
         allowedTools: agentContext?.agentConfig.allowedTools,
         maxTurns: agentContext?.agentConfig.maxSteps,
+        projectId: agentContext?.projectId,
+        agentConfig: agentContext
+          ? {
+              name: agentContext.agentConfig.name,
+              isBuiltin: agentContext.agentConfig.isBuiltin,
+              systemPrompt: agentContext.agentConfig.systemPrompt,
+              appendSystemPrompt: agentContext.agentConfig.appendSystemPrompt,
+            }
+          : undefined,
       });
 
       // 5. Consume SSE stream
@@ -100,10 +112,25 @@ export class RunOrchestrator {
         // Best-effort
       }
     } finally {
+      // Release the task lock so the next run can be created
+      if (this.deps.releaseTaskLock) {
+        try {
+          await this.deps.releaseTaskLock(runId);
+        } catch (err) {
+          console.error(`[orchestrator] Failed to release task lock for run ${runId}:`, err);
+        }
+      }
       if (sandboxId) {
         this.deps.sandboxProvider.destroy(sandboxId).catch(() => {});
       }
     }
+  }
+
+  private getDevAgentWorkerUrl(): string | null {
+    const explicit = process.env.DEV_AGENT_WORKER_URL?.trim();
+    if (explicit) return explicit;
+    if (process.env.NODE_ENV === 'production') return null;
+    return 'http://127.0.0.1:8787';
   }
 
   /**
@@ -213,7 +240,12 @@ export class RunOrchestrator {
 
         try {
           const data = JSON.parse(json);
-          const event = { type: data.type, data, seq: seq++, timestamp: Date.now() };
+          const event = {
+            type: data.type,
+            data,
+            seq: seq++,
+            timestamp: Date.now(),
+          };
           await pipeline.process(event);
         } catch {
           /* skip malformed */

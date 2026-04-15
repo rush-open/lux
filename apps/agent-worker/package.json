@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsup src/server.ts --format esm --dts",
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --env-file-if-exists=.env.local src/server.ts",
     "start": "node dist/server.js",
     "check": "tsc --noEmit",
     "lint": "biome check .",
@@ -16,6 +16,7 @@
     "@hono/node-server": "^1.13.0",
     "@open-rush/agent-runtime": "workspace:*",
     "@open-rush/contracts": "workspace:*",
+    "@lux/prompts": "workspace:*",
     "ai": "^6.0.159",
     "ai-sdk-provider-claude-code": "^3.4.4",
     "hono": "^4.7.0"

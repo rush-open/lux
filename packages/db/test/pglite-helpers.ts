@@ -13,6 +13,7 @@ const TABLE_NAMES = [
   'run_checkpoints',
   'run_events',
   'runs',
+  'tasks',
   'sandboxes',
   'project_agents',
   'agents',
@@ -129,6 +130,7 @@ async function applySchema(db: TestDb): Promise<void> {
       provider_type VARCHAR(50) NOT NULL DEFAULT 'claude-code',
       model VARCHAR(255),
       system_prompt TEXT,
+      append_system_prompt TEXT,
       allowed_tools JSONB NOT NULL DEFAULT '[]'::jsonb,
       skills JSONB NOT NULL DEFAULT '[]'::jsonb,
       mcp_servers JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -163,11 +165,44 @@ async function applySchema(db: TestDb): Promise<void> {
     ON project_agents (project_id) WHERE is_current = true
   `);
 
+  // Tasks
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS tasks (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,
+      created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT,
+      status VARCHAR(20) NOT NULL DEFAULT 'active',
+      handoff_summary TEXT,
+      head_run_id UUID,
+      active_run_id UUID,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS tasks_project_id_idx ON tasks (project_id)
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS tasks_project_updated_at_idx ON tasks (project_id, updated_at)
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks (status)
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS tasks_head_run_id_idx ON tasks (head_run_id)
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS tasks_active_run_id_idx ON tasks (active_run_id)
+  `);
+
   // Conversations
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS conversations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      task_id UUID,
       agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,
       user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       title TEXT,
@@ -183,6 +218,8 @@ async function applySchema(db: TestDb): Promise<void> {
     CREATE TABLE IF NOT EXISTS runs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      task_id UUID,
+      conversation_id UUID,
       parent_run_id UUID REFERENCES runs(id) ON DELETE SET NULL,
       status VARCHAR(50) NOT NULL DEFAULT 'queued',
       prompt TEXT NOT NULL,
@@ -201,6 +238,47 @@ async function applySchema(db: TestDb): Promise<void> {
       completed_at TIMESTAMPTZ
     )
   `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS runs_task_id_idx ON runs (task_id)
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS runs_conversation_id_idx ON runs (conversation_id)
+  `);
+  await db
+    .execute(sql`
+    ALTER TABLE tasks
+    ADD CONSTRAINT tasks_head_run_id_runs_id_fk
+    FOREIGN KEY (head_run_id) REFERENCES runs(id) ON DELETE SET NULL
+  `)
+    .catch(() => {});
+  await db
+    .execute(sql`
+    ALTER TABLE tasks
+    ADD CONSTRAINT tasks_active_run_id_runs_id_fk
+    FOREIGN KEY (active_run_id) REFERENCES runs(id) ON DELETE SET NULL
+  `)
+    .catch(() => {});
+  await db
+    .execute(sql`
+    ALTER TABLE conversations
+    ADD CONSTRAINT conversations_task_id_tasks_id_fk
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
+  `)
+    .catch(() => {});
+  await db
+    .execute(sql`
+    ALTER TABLE runs
+    ADD CONSTRAINT runs_task_id_tasks_id_fk
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
+  `)
+    .catch(() => {});
+  await db
+    .execute(sql`
+    ALTER TABLE runs
+    ADD CONSTRAINT runs_conversation_id_conversations_id_fk
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+  `)
+    .catch(() => {});
 
   // Run events
   await db.execute(sql`

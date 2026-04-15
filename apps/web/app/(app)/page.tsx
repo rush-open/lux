@@ -111,8 +111,8 @@ export default function HomePage() {
         const json = await res.json();
 
         if (json.success && json.data) {
-          const { projectId, conversationId } = json.data;
-          const params = new URLSearchParams({ projectId });
+          const { projectId, taskId, conversationId } = json.data;
+          const params = new URLSearchParams({ projectId, taskId });
           if (agent) {
             params.set('agent', agent.name);
             params.set('agentId', agent.id);

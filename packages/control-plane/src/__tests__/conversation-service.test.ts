@@ -15,6 +15,7 @@ class InMemoryConversationDb implements ConversationDb {
     const conv: Conversation = {
       id: randomUUID(),
       projectId: input.projectId,
+      taskId: input.taskId ?? null,
       agentId: input.agentId ?? null,
       userId: input.userId,
       title: input.title ?? null,
@@ -74,11 +75,14 @@ describe('ConversationService', () => {
       expect(conv.projectId).toBe(projectId);
       expect(conv.userId).toBe(userId);
       expect(conv.title).toBeNull();
+      expect(conv.taskId).toBeNull();
     });
 
     it('creates with optional fields', async () => {
       const agentId = randomUUID();
-      const conv = await service.create({ projectId, userId, agentId, title: 'My Chat' });
+      const taskId = randomUUID();
+      const conv = await service.create({ projectId, taskId, userId, agentId, title: 'My Chat' });
+      expect(conv.taskId).toBe(taskId);
       expect(conv.agentId).toBe(agentId);
       expect(conv.title).toBe('My Chat');
     });

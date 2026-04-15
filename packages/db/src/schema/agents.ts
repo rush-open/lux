@@ -27,6 +27,7 @@ export const agents = pgTable(
     providerType: varchar('provider_type', { length: 50 }).notNull().default('claude-code'),
     model: varchar('model', { length: 255 }),
     systemPrompt: text('system_prompt'),
+    appendSystemPrompt: text('append_system_prompt'),
     allowedTools: jsonb('allowed_tools').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     skills: jsonb('skills').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     mcpServers: jsonb('mcp_servers').$type<string[]>().notNull().default(sql`'[]'::jsonb`),

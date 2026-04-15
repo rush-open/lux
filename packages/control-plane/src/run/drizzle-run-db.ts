@@ -10,6 +10,8 @@ function mapRow(row: RunRow): Run {
   return {
     id: row.id,
     agentId: row.agentId,
+    taskId: row.taskId,
+    conversationId: row.conversationId,
     parentRunId: row.parentRunId,
     status: row.status as RunStatus,
     prompt: row.prompt,
@@ -36,6 +38,8 @@ export class DrizzleRunDb implements RunDb {
       .insert(runs)
       .values({
         agentId: input.agentId,
+        taskId: input.taskId ?? null,
+        conversationId: input.conversationId ?? null,
         prompt: input.prompt,
         parentRunId: input.parentRunId ?? null,
         provider: input.provider ?? 'claude-code',

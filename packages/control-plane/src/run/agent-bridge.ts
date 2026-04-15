@@ -8,6 +8,14 @@ export interface AgentBridgeResult {
   response: Response;
 }
 
+/** Agent config subset passed to agent-worker for prompt resolution */
+export interface AgentBridgeAgentConfig {
+  name: string;
+  isBuiltin?: boolean | null;
+  systemPrompt?: string | null;
+  appendSystemPrompt?: string | null;
+}
+
 export class AgentBridge {
   constructor(private config: AgentBridgeConfig) {}
 
@@ -17,10 +25,11 @@ export class AgentBridge {
       sessionId?: string;
       env?: Record<string, string>;
       requestId?: string;
-      systemPrompt?: string;
       modelId?: string;
       allowedTools?: string[];
       maxTurns?: number;
+      projectId?: string;
+      agentConfig?: AgentBridgeAgentConfig;
     } = {}
   ): Promise<AgentBridgeResult> {
     const streamId = `stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -39,10 +48,11 @@ export class AgentBridge {
         prompt,
         sessionId: options.sessionId,
         env: options.env,
-        systemPrompt: options.systemPrompt,
         modelId: options.modelId,
         allowedTools: options.allowedTools,
         maxTurns: options.maxTurns,
+        projectId: options.projectId,
+        agentConfig: options.agentConfig,
         streamId,
       }),
       signal: AbortSignal.timeout(this.config.requestTimeoutMs ?? 300_000),

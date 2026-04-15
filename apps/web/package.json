@@ -24,6 +24,7 @@
     "@open-rush/integrations": "workspace:*",
     "@open-rush/mcp": "workspace:*",
     "@open-rush/memory": "workspace:*",
+    "@open-rush/observability": "workspace:*",
     "@open-rush/skills": "workspace:*",
     "@streamdown/cjk": "^1.0.3",
     "@streamdown/code": "^1.1.1",
