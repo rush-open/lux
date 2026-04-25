@@ -155,7 +155,7 @@ Source of truth 见 `.claude/plans/managed-agents-p0-p1.md`。本文件仅用于
       - scope 校验
       - verify: `./docs/execution/verify.sh task-12`
 
-- [ ] `task-13-api-v1-agents-runs` — **Agent-B**
+- [x] `task-13-api-v1-agents-runs` — **Agent-B**
       域: `apps/web/app/api/v1/agents/[agentId]/runs/*`(不含 events)
       依赖: task-11, task-12
       验收:

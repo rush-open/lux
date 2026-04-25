@@ -81,8 +81,11 @@ describe('idempotencyKeyHeaderSchema', () => {
     expect(idempotencyKeyHeaderSchema.safeParse('a/b').success).toBe(false);
   });
 
-  it('rejects > 255 chars', () => {
-    expect(idempotencyKeyHeaderSchema.safeParse('a'.repeat(256)).success).toBe(false);
+  it('rejects keys > 160 chars (length budget for double-scoped storage key)', () => {
+    // 160 is the cap that leaves room for the `task:<uuid>|agent:<uuid>|`
+    // prefixes landing in `runs.idempotency_key varchar(255)`.
+    expect(idempotencyKeyHeaderSchema.safeParse('a'.repeat(161)).success).toBe(false);
+    expect(idempotencyKeyHeaderSchema.safeParse('a'.repeat(160)).success).toBe(true);
   });
 
   it('rejects empty string', () => {

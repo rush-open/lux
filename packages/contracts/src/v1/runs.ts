@@ -20,13 +20,32 @@ import { paginatedResponseSchema, paginationQuerySchema, successResponseSchema }
 // Run entity
 // ---------------------------------------------------------------------------
 
+/**
+ * Wire-level run status. Superset of the internal {@link RunStatus}
+ * 15-state machine:
+ *
+ * - All 15 internal states (queued..finalizing_manual_intervention) plus
+ * - `'cancelled'` — an API-layer virtual status surfaced by
+ *   `POST /api/v1/agents/:id/runs/:runId/cancel` and `DELETE /api/v1/agents/:id`
+ *   (spec §E2E 3.5). v0.1 doesn't have a dedicated `cancelled` state on
+ *   the state machine; the service transitions to `failed` with
+ *   `errorMessage='cancelled by user'` and the route overrides the wire
+ *   status back to `'cancelled'`. Consumers can still rely on
+ *   `errorMessage` to disambiguate user-cancel from other failures.
+ *
+ * P2 may promote this to a first-class state machine entry; the wire
+ * contract already accepts the value so SDKs don't need to change.
+ */
+export const WireRunStatus = z.union([RunStatus, z.literal('cancelled')]);
+export type WireRunStatus = z.infer<typeof WireRunStatus>;
+
 export const runSchema = z.object({
   id: z.string().uuid(),
   agentId: z.string().uuid(),
   taskId: z.string().uuid().nullable(),
   conversationId: z.string().uuid().nullable(),
   parentRunId: z.string().uuid().nullable(),
-  status: RunStatus,
+  status: WireRunStatus,
   prompt: z.string(),
   provider: z.string(),
   connectionMode: ConnectionMode,
@@ -78,12 +97,21 @@ export type CreateRunRequest = z.infer<typeof createRunRequestSchema>;
 
 /**
  * Shape of the `Idempotency-Key` header value as accepted by the API.
- * Allows UUID or any ≤255 char ASCII token; the DB column is varchar(255).
+ *
+ * Length budget rationale: the DB column is `varchar(255)` and the
+ * storage key is double-scoped before landing:
+ *   1. API layer prepends `task:<uuid:36>|`        (42 chars)
+ *   2. Service layer prepends `agent:<uuid:36>|`   (43 chars)
+ *   Total overhead: 85 chars.
+ * We therefore cap client-supplied keys at 160 chars — leaves a
+ * comfortable 10-char headroom (future scope prefix, etc.) while
+ * guaranteeing the scoped key fits `varchar(255)` in all cases. Clients
+ * should use UUIDv4 (36 chars) which is well within this bound.
  */
 export const idempotencyKeyHeaderSchema = z
   .string()
   .min(1)
-  .max(255)
+  .max(160)
   .regex(/^[A-Za-z0-9_-]+$/, 'must be URL-safe ASCII (A-Z a-z 0-9 _ -)');
 export type IdempotencyKeyHeader = z.infer<typeof idempotencyKeyHeaderSchema>;
 
@@ -95,7 +123,11 @@ export type CreateRunResponse = z.infer<typeof createRunResponseSchema>;
 // ---------------------------------------------------------------------------
 
 export const listRunsQuerySchema = paginationQuerySchema.extend({
-  status: RunStatus.optional(),
+  // Accept the wire-level superset so clients can filter on the
+  // API-layer `cancelled` virtual status too. The route maps the
+  // `cancelled` filter onto the DB `status='failed' + errorMessage LIKE
+  // 'cancelled by user%'` predicate (see route handler).
+  status: WireRunStatus.optional(),
 });
 export type ListRunsQuery = z.infer<typeof listRunsQuerySchema>;
 
