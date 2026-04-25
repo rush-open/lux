@@ -88,6 +88,43 @@ class InMemoryVaultStorage implements VaultStorage {
         injectionTarget: e.entry.injectionTarget,
       }));
   }
+
+  async findById(id: string): Promise<VaultEntry | null> {
+    for (const { entry } of this.entries.values()) {
+      if (entry.id === id) return entry;
+    }
+    return null;
+  }
+
+  async removeById(id: string): Promise<boolean> {
+    for (const [k, { entry }] of this.entries) {
+      if (entry.id === id) {
+        this.entries.delete(k);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async listForAccess(filter: {
+    includePlatform: boolean;
+    projectIds: string[];
+  }): Promise<VaultEntry[]> {
+    if (!filter.includePlatform && filter.projectIds.length === 0) return [];
+    const ids = new Set(filter.projectIds);
+    return Array.from(this.entries.values())
+      .filter((e) => {
+        if (e.entry.scope === 'platform') return filter.includePlatform;
+        if (e.entry.scope === 'project') return !!e.entry.projectId && ids.has(e.entry.projectId);
+        return false;
+      })
+      .map((e) => e.entry)
+      .sort((a, b) => {
+        const t = b.createdAt.getTime() - a.createdAt.getTime();
+        if (t !== 0) return t;
+        return b.id.localeCompare(a.id);
+      });
+  }
 }
 
 describe('VaultService', () => {

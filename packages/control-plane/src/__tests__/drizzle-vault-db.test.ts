@@ -234,4 +234,153 @@ describe('DrizzleVaultDb', () => {
     expect(pe?.injectionTarget).toBe('MY_VAR');
     expect(pe?.scope).toBe('project');
   });
+
+  // -------------------------------------------------------------------------
+  // findById / removeById / listForAccess (task-9 additions)
+  // -------------------------------------------------------------------------
+
+  it('findById returns the entry or null', async () => {
+    const created = await store.upsert({
+      scope: 'platform',
+      projectId: null,
+      ownerId: null,
+      name: 'K1',
+      credentialType: 'env_var',
+      encryptedValue: 'ct1',
+      keyVersion: 1,
+      injectionTarget: null,
+    });
+    const found = await store.findById(created.id);
+    expect(found?.id).toBe(created.id);
+    expect(found?.name).toBe('K1');
+
+    const missing = await store.findById('00000000-0000-0000-0000-000000000000');
+    expect(missing).toBeNull();
+  });
+
+  it('removeById deletes by uuid and returns true; false on missing', async () => {
+    const created = await store.upsert({
+      scope: 'project',
+      projectId,
+      ownerId: null,
+      name: 'TO_DELETE_BY_ID',
+      credentialType: 'env_var',
+      encryptedValue: 'ct',
+      keyVersion: 1,
+      injectionTarget: null,
+    });
+    expect(await store.removeById(created.id)).toBe(true);
+    expect(await store.findById(created.id)).toBeNull();
+    expect(await store.removeById(created.id)).toBe(false);
+  });
+
+  it('listForAccess: [] for empty filter', async () => {
+    await store.upsert({
+      scope: 'platform',
+      projectId: null,
+      ownerId: null,
+      name: 'P',
+      credentialType: 'env_var',
+      encryptedValue: 'ct',
+      keyVersion: 1,
+      injectionTarget: null,
+    });
+    expect(await store.listForAccess({ includePlatform: false, projectIds: [] })).toEqual([]);
+  });
+
+  it('listForAccess: platform-only with includePlatform=true + projectIds=[]', async () => {
+    await store.upsert({
+      scope: 'platform',
+      projectId: null,
+      ownerId: null,
+      name: 'ONLY_P',
+      credentialType: 'env_var',
+      encryptedValue: 'ct',
+      keyVersion: 1,
+      injectionTarget: null,
+    });
+    await store.upsert({
+      scope: 'project',
+      projectId,
+      ownerId: null,
+      name: 'PRJ_X',
+      credentialType: 'env_var',
+      encryptedValue: 'ct',
+      keyVersion: 1,
+      injectionTarget: null,
+    });
+    const res = await store.listForAccess({ includePlatform: true, projectIds: [] });
+    expect(res.map((r) => r.name)).toEqual(['ONLY_P']);
+  });
+
+  it('listForAccess: filters projectIds strictly (IN clause)', async () => {
+    const [otherUser] = await db
+      .insert(users)
+      .values({ name: 'Other', email: `other-${Math.random()}@ex.com` })
+      .returning();
+    const [project2] = await db
+      .insert(projects)
+      .values({ name: 'P2', createdBy: otherUser.id })
+      .returning();
+
+    await store.upsert({
+      scope: 'project',
+      projectId,
+      ownerId: null,
+      name: 'IN_1',
+      credentialType: 'env_var',
+      encryptedValue: 'ct',
+      keyVersion: 1,
+      injectionTarget: null,
+    });
+    await store.upsert({
+      scope: 'project',
+      projectId: project2.id,
+      ownerId: null,
+      name: 'IN_2',
+      credentialType: 'env_var',
+      encryptedValue: 'ct',
+      keyVersion: 1,
+      injectionTarget: null,
+    });
+    const both = await store.listForAccess({
+      includePlatform: false,
+      projectIds: [projectId, project2.id],
+    });
+    expect(both.map((r) => r.name).sort()).toEqual(['IN_1', 'IN_2']);
+
+    const onlyFirst = await store.listForAccess({
+      includePlatform: false,
+      projectIds: [projectId],
+    });
+    expect(onlyFirst.map((r) => r.name)).toEqual(['IN_1']);
+  });
+
+  it('listForAccess: orders by (created_at DESC, id DESC)', async () => {
+    await store.upsert({
+      scope: 'platform',
+      projectId: null,
+      ownerId: null,
+      name: 'ORDER_A',
+      credentialType: 'env_var',
+      encryptedValue: 'ct',
+      keyVersion: 1,
+      injectionTarget: null,
+    });
+    await db.execute(
+      sql`UPDATE vault_entries SET created_at = now() - interval '10 second' WHERE name = 'ORDER_A'`
+    );
+    await store.upsert({
+      scope: 'platform',
+      projectId: null,
+      ownerId: null,
+      name: 'ORDER_B',
+      credentialType: 'env_var',
+      encryptedValue: 'ct',
+      keyVersion: 1,
+      injectionTarget: null,
+    });
+    const res = await store.listForAccess({ includePlatform: true, projectIds: [] });
+    expect(res.map((r) => r.name)).toEqual(['ORDER_B', 'ORDER_A']);
+  });
 });

@@ -1,5 +1,5 @@
 import { type DbClient, vaultEntries } from '@open-rush/db';
-import { and, count, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import type { VaultEntry, VaultScope, VaultStorage } from './vault-service.js';
 
@@ -130,5 +130,40 @@ export class DrizzleVaultDb implements VaultStorage {
         )
       );
     return rows.map((r) => ({ ...r, scope: r.scope as VaultScope }));
+  }
+
+  async findById(id: string): Promise<VaultEntry | null> {
+    const [row] = await this.db.select().from(vaultEntries).where(eq(vaultEntries.id, id)).limit(1);
+    return row ? mapRow(row) : null;
+  }
+
+  async removeById(id: string): Promise<boolean> {
+    const rows = await this.db.delete(vaultEntries).where(eq(vaultEntries.id, id)).returning();
+    return rows.length > 0;
+  }
+
+  async listForAccess(filter: {
+    includePlatform: boolean;
+    projectIds: string[];
+  }): Promise<VaultEntry[]> {
+    if (!filter.includePlatform && filter.projectIds.length === 0) return [];
+
+    const orParts = [];
+    if (filter.includePlatform) {
+      orParts.push(and(eq(vaultEntries.scope, 'platform'), isNull(vaultEntries.projectId)));
+    }
+    if (filter.projectIds.length > 0) {
+      orParts.push(
+        and(eq(vaultEntries.scope, 'project'), inArray(vaultEntries.projectId, filter.projectIds))
+      );
+    }
+
+    const where = orParts.length === 1 ? orParts[0] : or(...orParts);
+    const rows = await this.db
+      .select()
+      .from(vaultEntries)
+      .where(where)
+      .orderBy(desc(vaultEntries.createdAt), desc(vaultEntries.id));
+    return rows.map(mapRow);
   }
 }

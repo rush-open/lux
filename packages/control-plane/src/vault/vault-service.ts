@@ -54,6 +54,28 @@ export interface VaultStorage {
       injectionTarget: string | null;
     }>
   >;
+
+  /**
+   * Id-based lookup used by the v1 `/api/v1/vaults/entries/:id` route
+   * (DELETE + membership check). Returns null when the id is unknown.
+   */
+  findById(id: string): Promise<VaultEntry | null>;
+
+  /**
+   * Delete by id. Returns true if a row was removed, false if the id did
+   * not exist.
+   */
+  removeById(id: string): Promise<boolean>;
+
+  /**
+   * List entries across one or more scopes, used by the v1 list endpoint:
+   * - `includePlatform=true`  → platform entries included
+   * - `projectIds` non-empty  → project entries for those ids are included
+   * - both false/empty        → returns []
+   *
+   * Ordered `created_at DESC, id DESC` for deterministic pagination.
+   */
+  listForAccess(filter: { includePlatform: boolean; projectIds: string[] }): Promise<VaultEntry[]>;
 }
 
 export class VaultService {
@@ -116,6 +138,38 @@ export class VaultService {
     if (scope === 'project' && !projectId) {
       throw new Error('projectId is required for project-scoped credentials');
     }
+  }
+
+  /**
+   * Id-based lookup used by `/api/v1/vaults/entries/:id` (DELETE flow needs
+   * to know the row's scope + projectId to run the right membership check).
+   * Returns null if no such id exists.
+   */
+  async findById(id: string): Promise<VaultEntry | null> {
+    return this.storage.findById(id);
+  }
+
+  /**
+   * Id-based delete used by `/api/v1/vaults/entries/:id`. Returns true when
+   * a row was removed. Callers MUST run membership checks BEFORE calling
+   * this; this method does not enforce any authorization.
+   */
+  async removeById(id: string): Promise<boolean> {
+    return this.storage.removeById(id);
+  }
+
+  /**
+   * Union list of platform + project entries the caller can see. The route
+   * layer computes the inputs: `includePlatform=true` only for session
+   * callers (per spec §资源归属校验), `projectIds` for the caller's
+   * project memberships.
+   */
+  async listForAccess(filter: {
+    includePlatform: boolean;
+    projectIds: string[];
+  }): Promise<VaultEntry[]> {
+    if (!filter.includePlatform && filter.projectIds.length === 0) return [];
+    return this.storage.listForAccess(filter);
   }
 
   async resolveForSandbox(projectId: string, _userId?: string): Promise<Record<string, string>> {

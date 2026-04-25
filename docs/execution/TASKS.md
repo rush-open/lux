@@ -111,7 +111,7 @@ Source of truth 见 `.claude/plans/managed-agents-p0-p1.md`。本文件仅用于
       - 集成测试覆盖乐观并发 409
       - verify: `./docs/execution/verify.sh task-8`
 
-- [ ] `task-9-api-v1-vaults` — **Agent-A**
+- [x] `task-9-api-v1-vaults` — **Agent-A**
       域: `apps/web/app/api/v1/vaults/entries/*`
       依赖: task-5, task-4
       验收:

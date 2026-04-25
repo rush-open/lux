@@ -111,9 +111,44 @@
     → 修:`WHERE` + `ORDER BY` 两侧都用 `date_trunc('milliseconds', created_at)` 统一到 ms 精度;现在比较一致、不丢行。
 - **Sparring 轮 2**: **APPROVE**(逐项确认 4 项修复成立 + 其他 Round 1 项不退化;NIT 仅建议补 Docker PG 多连接用例,非阻塞)
 
-## task-9: API /api/v1/vaults/entries/*(待 task-8 merge 后)
-- 依赖 task-5(已 merged)+ task-4(已 merged)
-- 复用 task-8 的 `v1-responses.ts` helpers + 前/后置 membership check 模式
+## task-9: API /api/v1/vaults/entries/* (3 endpoints)
+- **状态**: ✅ 本地验证全绿 + Sparring 轮 2 APPROVE,待 PR
+- **分支**: `feat/task-9` 在 `/tmp/agent-wt/a`(基于 origin/main @f232352 — post task-5/6/7/8/10/11 merged)
+- **文件域**:
+  - `apps/web/app/api/v1/vaults/entries/route.ts`(POST + GET)
+  - `apps/web/app/api/v1/vaults/entries/[id]/route.ts`(DELETE)
+  - `apps/web/app/api/v1/vaults/entries/helpers.ts`(resolveVault + entryToV1)
+  - `apps/web/app/api/v1/vaults/entries/route.test.ts` + `[id]/route.test.ts`(route 单测 + 500 INTERNAL 覆盖)
+  - `apps/web/app/api/v1/vaults/entries/vaults.integration.test.ts`(PGlite + real crypto + real route 集成)
+  - `packages/control-plane/src/vault/vault-service.ts`(+ findById / removeById / listForAccess)
+  - `packages/control-plane/src/vault/drizzle-vault-db.ts`(+ 同 3 个实现)
+  - `packages/control-plane/src/__tests__/drizzle-vault-db.test.ts`(+ 6 tests)
+  - `packages/control-plane/src/__tests__/vault-service.test.ts`(InMemoryVaultStorage 补 3 方法,满足 TS 接口)
+- **关键决策**:
+  - **encryptedValue 绝不上线**:domain type 不含 `encryptedValue`;`entryToV1` 白名单映射;unit/integration 测试用 grep 断言响应里找不到 `encryptedValue / encrypted_value / 明文`。
+  - **Platform scope = session-only**:service-token 即使有 `vaults:write` 也拒绝创建 / 删除 / GET scope=platform,对齐 spec "Platform entries visible only to admin"。
+  - **资源归属**:POST + GET?scope=project 前置 `verifyProjectAccess`;DELETE 按 entry 加载后检查(project → membership,platform → session)。GET 无 projectId → `listAccessibleProjectIds`(memberships ∪ createdBy,两分支都 filter `projects.deletedAt IS NULL` — 沿用 task-8 模式)。
+  - **Service 扩展**:`findById / removeById / listForAccess({includePlatform, projectIds})`;`projectIds=[]` + `includePlatform=false` 短路返回 []。
+  - **V0.1 分页策略**:GET 返回全量(不 slice),`nextCursor: null`。理由:per-scope cap 20;contract `cursor` + `limit` 留未来;**静默截断是可视性 bug**(Sparring Round 1 catch)。
+  - **VAULT_MASTER_KEY 错误包络**:`resolveVault()` 返 `{service} | {error: Response}`。缺失 / 非法 key → v1 INTERNAL 500 envelope(不是框架默认未包络 500)。
+- **测试覆盖**(54 new tests):
+  - route.test.ts (14): POST 401/403/400 invalid-JSON/400 schema/403 service-token→platform/403 project/201 + no encryptedValue/400 cap + hint/rethrow unknown/500 INTERNAL VAULT_MASTER_KEY;GET 401/403/400 bad scope/403 service-token platform/403 project/200 + no encryptedValue/service-token includePlatform=false/narrow by projectId/**回归 75 rows 不截断**/500 INTERNAL
+  - [id]/route.test.ts (11): 401/403/400 id/404/403 service-token platform/200 session platform/403 non-member/200 member/500 integrity/500 INTERNAL VAULT_MASTER_KEY
+  - vaults.integration.test.ts (6): POST+GET 加密往返 / service-token vs session platform / 不泄漏其他 project / DELETE platform (session/token) / DELETE project (member/non-member) / DELETE unknown id 404
+  - drizzle-vault-db.test.ts (+6): findById / removeById / listForAccess 空/platform-only/projectIds 过滤/DESC 排序
+- **Sparring 轮 1**: CONCERNS
+  - MUST-FIX: GET 按 limit slice + 永远 `nextCursor:null` → 数据可视性 bug
+    → 修:移除 slice,返回全量 + nextCursor:null + 策略注释 + 回归测试 `returns ALL visible rows without truncation`
+  - SHOULD-FIX: VAULT_MASTER_KEY 缺失抛 raw Error → 框架默认 500 不带 error.code
+    → 修:`resolveVault()` helper,返 v1 INTERNAL envelope,3 endpoint 各一条 500 INTERNAL 测试
+  - NIT: route.test.ts 有未用的 mockListAccessibleProjectIds + self-mock
+    → 清理
+- **Sparring 轮 2**: **APPROVE**(逐项确认 3 项修复已落实)
+- **验证结果**:
+  - `pnpm build` PASS(DATABASE_URL via .env)
+  - `pnpm check` / `pnpm lint` PASS
+  - `pnpm test` PASS:web 19 files / 290 tests;control-plane 37 / 573
+  - `./docs/execution/verify.sh task-9` **PASS**
 
 ## 纪律 / 流程
 

@@ -135,11 +135,11 @@ beforeAll(async () => {
   const [idRoute, collRoute] = await Promise.all([import('./[id]/route'), import('./route')]);
   PATCH = idRoute.PATCH;
   POST_CREATE = collRoute.POST;
-});
+}, 30000);
 
 afterAll(async () => {
   await pglite.close();
-});
+}, 30000);
 
 let USER_ID = '';
 
