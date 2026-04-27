@@ -136,7 +136,7 @@ CREATE INDEX runs_idempotency_lookup_idx
 
 不做 UNIQUE 索引,避免"永久冲突"语义。
 
-## 事件协议(SSE)
+## Event protocol (SSE)
 
 ### 协议格式
 
